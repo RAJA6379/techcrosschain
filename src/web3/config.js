@@ -1,19 +1,14 @@
-// Add deployed contract addresses here after deploying the Solidity contracts.
+
 export const NETWORK = {
-  name: 'Sepolia',
+  name: "Sepolia",
   chainId: 11155111,
-  chainIdHex: '0xaa36a7'
+  chainIdHex: "0xaa36a7",
 };
 
 export const CONTRACTS = {
-  tokenA: '0x31F93adA66F5ffC4eA8aB9592c1F748579B7f9F9',
-  tokenB: '0xf04806755412a3fB4486414Ec67A5115c743B000',
-  swap: '0xA8960c304b785191eD6cf949B8867e7d217cdD5F'
+  tokenA: "0xF75dD065E4762b276B6df23fa400EeA9d381d358",
+  tokenB: "0x6360DfeB1776e536e3546ed97DADBe1115D21848",
+  swap: "0x04D18f76fF1A5645caE4571B4698791691f789ae",
 };
 
 export const SEPOLIA_CHAIN_ID = 11155111;
-
-export const SEPOLIA_USDC_ADDRESS =
-  "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
-
-export const USDC_DECIMALS = 6;
