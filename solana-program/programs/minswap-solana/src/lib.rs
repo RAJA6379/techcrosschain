@@ -7,12 +7,19 @@ use anchor_spl::token::{
 declare_id!("GHwq3cme1Kfm8TAgTUatuNW8Aw9Mm5KgsWQW9zP3QagQ");
 
 const SWAP_FEE_BPS: u16 = 30;
+const BPS_DENOMINATOR: u128 = 10_000;
 
 #[program]
 pub mod minswap_solana {
     use super::*;
 
-    pub fn initialize_pool(ctx: Context<InitializePool>) -> Result<()> {
+    // ==========================================
+    // 1. INITIALIZE LIQUIDITY POOL
+    // ==========================================
+
+    pub fn initialize_pool(
+        ctx: Context<InitializePool>,
+    ) -> Result<()> {
         require!(
             ctx.accounts.token_a_mint.key().to_bytes()
                 < ctx.accounts.token_b_mint.key().to_bytes(),
@@ -20,6 +27,7 @@ pub mod minswap_solana {
         );
 
         let pool = &mut ctx.accounts.pool;
+
         pool.authority = ctx.accounts.authority.key();
         pool.token_a_mint = ctx.accounts.token_a_mint.key();
         pool.token_b_mint = ctx.accounts.token_b_mint.key();
@@ -30,9 +38,14 @@ pub mod minswap_solana {
         pool.fee_bps = SWAP_FEE_BPS;
         pool.bump = ctx.bumps.pool;
 
-        msg!("MinSwap Phase 3B pool initialized");
+        msg!("MinSwap pool initialized");
+
         Ok(())
     }
+
+    // ==========================================
+    // 2. ADD LIQUIDITY AND MINT LP TOKENS
+    // ==========================================
 
     pub fn add_liquidity(
         ctx: Context<AddLiquidity>,
@@ -48,6 +61,11 @@ pub mod minswap_solana {
         let reserve_a = ctx.accounts.token_a_vault.amount;
         let reserve_b = ctx.accounts.token_b_vault.amount;
         let current_lp = ctx.accounts.pool.total_liquidity;
+
+        require!(
+            ctx.accounts.lp_mint.supply == current_lp,
+            MinSwapError::InvalidLpSupply
+        );
 
         let lp_to_mint = if current_lp == 0 {
             require!(
@@ -67,7 +85,8 @@ pub mod minswap_solana {
                 MinSwapError::InvalidReserves
             );
 
-            // This phase accepts proportional additions only.
+            // Additional deposits must follow the
+            // pool's current token reserve ratio.
             require!(
                 (amount_a as u128)
                     .checked_mul(reserve_b as u128)
@@ -93,7 +112,11 @@ pub mod minswap_solana {
                 .map_err(|_| error!(MinSwapError::MathOverflow))?
         };
 
-        require!(lp_to_mint > 0, MinSwapError::InsufficientLp);
+        require!(
+            lp_to_mint > 0,
+            MinSwapError::InsufficientLp
+        );
+
         require!(
             lp_to_mint >= min_lp_out,
             MinSwapError::SlippageExceeded
@@ -103,27 +126,42 @@ pub mod minswap_solana {
             .checked_add(lp_to_mint)
             .ok_or(MinSwapError::MathOverflow)?;
 
-        let token_program = ctx.accounts.token_program.to_account_info();
+        let token_program =
+            ctx.accounts.token_program.to_account_info();
 
+        // Transfer Token A into pool vault A.
         token::transfer(
             CpiContext::new(
                 token_program.clone(),
                 Transfer {
-                    from: ctx.accounts.provider_token_a.to_account_info(),
-                    to: ctx.accounts.token_a_vault.to_account_info(),
-                    authority: ctx.accounts.provider.to_account_info(),
+                    from: ctx.accounts
+                        .provider_token_a
+                        .to_account_info(),
+                    to: ctx.accounts
+                        .token_a_vault
+                        .to_account_info(),
+                    authority: ctx.accounts
+                        .provider
+                        .to_account_info(),
                 },
             ),
             amount_a,
         )?;
 
+        // Transfer Token B into pool vault B.
         token::transfer(
             CpiContext::new(
                 token_program.clone(),
                 Transfer {
-                    from: ctx.accounts.provider_token_b.to_account_info(),
-                    to: ctx.accounts.token_b_vault.to_account_info(),
-                    authority: ctx.accounts.provider.to_account_info(),
+                    from: ctx.accounts
+                        .provider_token_b
+                        .to_account_info(),
+                    to: ctx.accounts
+                        .token_b_vault
+                        .to_account_info(),
+                    authority: ctx.accounts
+                        .provider
+                        .to_account_info(),
                 },
             ),
             amount_b,
@@ -140,6 +178,7 @@ pub mod minswap_solana {
             &bump,
         ];
 
+        // Mint LP tokens to liquidity provider.
         token::mint_to(
             CpiContext::new_with_signer(
                 token_program,
@@ -157,8 +196,13 @@ pub mod minswap_solana {
 
         msg!("Liquidity added");
         msg!("LP tokens minted: {}", lp_to_mint);
+
         Ok(())
     }
+
+    // ==========================================
+    // 3. REMOVE LIQUIDITY AND BURN LP TOKENS
+    // ==========================================
 
     pub fn remove_liquidity(
         ctx: Context<RemoveLiquidity>,
@@ -166,13 +210,21 @@ pub mod minswap_solana {
         min_a_out: u64,
         min_b_out: u64,
     ) -> Result<()> {
-        require!(lp_amount > 0, MinSwapError::InvalidAmount);
+        require!(
+            lp_amount > 0,
+            MinSwapError::InvalidAmount
+        );
 
         let total_lp = ctx.accounts.pool.total_liquidity;
 
         require!(
             total_lp > 0 && lp_amount <= total_lp,
             MinSwapError::InsufficientLp
+        );
+
+        require!(
+            ctx.accounts.lp_mint.supply == total_lp,
+            MinSwapError::InvalidLpSupply
         );
 
         let reserve_a = ctx.accounts.token_a_vault.amount;
@@ -200,7 +252,8 @@ pub mod minswap_solana {
         );
 
         require!(
-            amount_a >= min_a_out && amount_b >= min_b_out,
+            amount_a >= min_a_out
+                && amount_b >= min_b_out,
             MinSwapError::SlippageExceeded
         );
 
@@ -208,9 +261,10 @@ pub mod minswap_solana {
             .checked_sub(lp_amount)
             .ok_or(MinSwapError::MathOverflow)?;
 
-        let token_program = ctx.accounts.token_program.to_account_info();
+        let token_program =
+            ctx.accounts.token_program.to_account_info();
 
-        // Burn the provider's LP tokens first.
+        // Burn provider's LP tokens.
         token::burn(
             CpiContext::new(
                 token_program.clone(),
@@ -234,26 +288,40 @@ pub mod minswap_solana {
             &bump,
         ];
 
+        // Return Token A to provider.
         token::transfer(
             CpiContext::new_with_signer(
                 token_program.clone(),
                 Transfer {
-                    from: ctx.accounts.token_a_vault.to_account_info(),
-                    to: ctx.accounts.provider_token_a.to_account_info(),
-                    authority: ctx.accounts.pool.to_account_info(),
+                    from: ctx.accounts
+                        .token_a_vault
+                        .to_account_info(),
+                    to: ctx.accounts
+                        .provider_token_a
+                        .to_account_info(),
+                    authority: ctx.accounts
+                        .pool
+                        .to_account_info(),
                 },
                 &[signer_seeds],
             ),
             amount_a,
         )?;
 
+        // Return Token B to provider.
         token::transfer(
             CpiContext::new_with_signer(
                 token_program,
                 Transfer {
-                    from: ctx.accounts.token_b_vault.to_account_info(),
-                    to: ctx.accounts.provider_token_b.to_account_info(),
-                    authority: ctx.accounts.pool.to_account_info(),
+                    from: ctx.accounts
+                        .token_b_vault
+                        .to_account_info(),
+                    to: ctx.accounts
+                        .provider_token_b
+                        .to_account_info(),
+                    authority: ctx.accounts
+                        .pool
+                        .to_account_info(),
                 },
                 &[signer_seeds],
             ),
@@ -265,9 +333,149 @@ pub mod minswap_solana {
         msg!("Liquidity removed");
         msg!("Token A returned: {}", amount_a);
         msg!("Token B returned: {}", amount_b);
+
+        Ok(())
+    }
+
+    // ==========================================
+    // 4. REAL SPL TOKEN SWAP
+    // ==========================================
+
+    pub fn swap_exact_input(
+        ctx: Context<SwapExactInput>,
+        amount_in: u64,
+        min_amount_out: u64,
+        a_to_b: bool,
+    ) -> Result<()> {
+        require!(
+            amount_in > 0 && min_amount_out > 0,
+            MinSwapError::InvalidAmount
+        );
+
+        let reserve_a = ctx.accounts.token_a_vault.amount;
+        let reserve_b = ctx.accounts.token_b_vault.amount;
+
+        let (reserve_in, reserve_out) = if a_to_b {
+            (reserve_a, reserve_b)
+        } else {
+            (reserve_b, reserve_a)
+        };
+
+        require!(
+            reserve_in > 0 && reserve_out > 0,
+            MinSwapError::InvalidReserves
+        );
+
+        // Constant-product AMM formula.
+        // Trading fee is retained in the pool.
+        let fee_multiplier = BPS_DENOMINATOR
+            .checked_sub(ctx.accounts.pool.fee_bps as u128)
+            .ok_or(MinSwapError::MathOverflow)?;
+
+        let effective_in = (amount_in as u128)
+            .checked_mul(fee_multiplier)
+            .ok_or(MinSwapError::MathOverflow)?;
+
+        let numerator = effective_in
+            .checked_mul(reserve_out as u128)
+            .ok_or(MinSwapError::MathOverflow)?;
+
+        let denominator = (reserve_in as u128)
+            .checked_mul(BPS_DENOMINATOR)
+            .ok_or(MinSwapError::MathOverflow)?
+            .checked_add(effective_in)
+            .ok_or(MinSwapError::MathOverflow)?;
+
+        let amount_out = u64::try_from(
+            numerator / denominator,
+        )
+        .map_err(|_| error!(MinSwapError::MathOverflow))?;
+
+        require!(
+            amount_out > 0 && amount_out < reserve_out,
+            MinSwapError::InvalidAmount
+        );
+
+        require!(
+            amount_out >= min_amount_out,
+            MinSwapError::SlippageExceeded
+        );
+
+        let token_program =
+            ctx.accounts.token_program.to_account_info();
+
+        // Select correct transfer direction.
+        let (
+            user_source,
+            pool_input,
+            pool_output,
+            user_destination,
+        ) = if a_to_b {
+            (
+                ctx.accounts.provider_token_a.to_account_info(),
+                ctx.accounts.token_a_vault.to_account_info(),
+                ctx.accounts.token_b_vault.to_account_info(),
+                ctx.accounts.provider_token_b.to_account_info(),
+            )
+        } else {
+            (
+                ctx.accounts.provider_token_b.to_account_info(),
+                ctx.accounts.token_b_vault.to_account_info(),
+                ctx.accounts.token_a_vault.to_account_info(),
+                ctx.accounts.provider_token_a.to_account_info(),
+            )
+        };
+
+        // User sends input tokens into the pool.
+        token::transfer(
+            CpiContext::new(
+                token_program.clone(),
+                Transfer {
+                    from: user_source,
+                    to: pool_input,
+                    authority: ctx.accounts.provider.to_account_info(),
+                },
+            ),
+            amount_in,
+        )?;
+
+        let mint_a = ctx.accounts.pool.token_a_mint;
+        let mint_b = ctx.accounts.pool.token_b_mint;
+        let bump = [ctx.accounts.pool.bump];
+
+        let signer_seeds: &[&[u8]] = &[
+            b"pool",
+            mint_a.as_ref(),
+            mint_b.as_ref(),
+            &bump,
+        ];
+
+        // Pool sends output tokens to the user.
+        token::transfer(
+            CpiContext::new_with_signer(
+                token_program,
+                Transfer {
+                    from: pool_output,
+                    to: user_destination,
+                    authority: ctx.accounts.pool.to_account_info(),
+                },
+                &[signer_seeds],
+            ),
+            amount_out,
+        )?;
+
+        msg!("Swap completed");
+        msg!("Input amount: {}", amount_in);
+        msg!("Output amount: {}", amount_out);
+        msg!("A to B: {}", a_to_b);
+
         Ok(())
     }
 }
+
+// ==========================================
+// INITIALIZE POOL ACCOUNTS
+// ==========================================
 
 #[derive(Accounts)]
 pub struct InitializePool<'info> {
@@ -325,19 +533,24 @@ pub struct InitializePool<'info> {
     pub rent: Sysvar<'info, Rent>,
 }
 
+// ==========================================
+// ADD LIQUIDITY ACCOUNTS
+// ==========================================
+
 #[derive(Accounts)]
 pub struct AddLiquidity<'info> {
     #[account(mut)]
     pub provider: Signer<'info>,
-#[account(
-    mut,
-    has_one = token_a_mint,
-    has_one = token_b_mint,
-    has_one = token_a_vault,
-    has_one = token_b_vault,
-    has_one = lp_mint
-)]
-pub pool: Account<'info, Pool>,
+
+    #[account(
+        mut,
+        has_one = token_a_mint,
+        has_one = token_b_mint,
+        has_one = token_a_vault,
+        has_one = token_b_vault,
+        has_one = lp_mint
+    )]
+    pub pool: Account<'info, Pool>,
 
     pub token_a_mint: Account<'info, Mint>,
     pub token_b_mint: Account<'info, Mint>,
@@ -389,6 +602,9 @@ pub pool: Account<'info, Pool>,
     pub token_program: Program<'info, Token>,
 }
 
+// ==========================================
+// REMOVE LIQUIDITY ACCOUNTS
+// ==========================================
 
 #[derive(Accounts)]
 pub struct RemoveLiquidity<'info> {
@@ -455,6 +671,61 @@ pub struct RemoveLiquidity<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+// ==========================================
+// SWAP ACCOUNTS
+// ==========================================
+
+#[derive(Accounts)]
+pub struct SwapExactInput<'info> {
+    #[account(mut)]
+    pub provider: Signer<'info>,
+
+    #[account(
+        has_one = token_a_mint,
+        has_one = token_b_mint,
+        has_one = token_a_vault,
+        has_one = token_b_vault,
+        constraint = pool.fee_bps <= 10_000
+    )]
+    pub pool: Account<'info, Pool>,
+
+    pub token_a_mint: Account<'info, Mint>,
+    pub token_b_mint: Account<'info, Mint>,
+
+    #[account(
+        mut,
+        constraint = provider_token_a.owner == provider.key(),
+        constraint = provider_token_a.mint == token_a_mint.key()
+    )]
+    pub provider_token_a: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = provider_token_b.owner == provider.key(),
+        constraint = provider_token_b.mint == token_b_mint.key()
+    )]
+    pub provider_token_b: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = token_a_vault.owner == pool.key(),
+        constraint = token_a_vault.mint == token_a_mint.key()
+    )]
+    pub token_a_vault: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = token_b_vault.owner == pool.key(),
+        constraint = token_b_vault.mint == token_b_mint.key()
+    )]
+    pub token_b_vault: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+// ==========================================
+// POOL DATA
+// ==========================================
 
 #[account]
 #[derive(InitSpace)]
@@ -470,6 +741,10 @@ pub struct Pool {
     pub bump: u8,
 }
 
+// ==========================================
+// ERRORS
+// ==========================================
+
 #[error_code]
 pub enum MinSwapError {
     #[msg("Token mints must be distinct and ordered")]
@@ -481,7 +756,7 @@ pub enum MinSwapError {
     #[msg("Pool reserves are inconsistent")]
     InvalidReserves,
 
-    #[msg("Additional deposits must match the pool ratio")]
+    #[msg("Additional deposits must match the current pool ratio")]
     InvalidDepositRatio,
 
     #[msg("Insufficient LP shares")]
@@ -492,9 +767,15 @@ pub enum MinSwapError {
 
     #[msg("Arithmetic overflow")]
     MathOverflow,
+
+    #[msg("LP mint supply does not match recorded pool liquidity")]
+    InvalidLpSupply,
 }
 
-// Integer-only square root for initial LP-share calculation.
+// ==========================================
+// INTEGER SQUARE ROOT
+// ==========================================
+
 fn integer_sqrt(value: u128) -> u128 {
     if value == 0 {
         return 0;
