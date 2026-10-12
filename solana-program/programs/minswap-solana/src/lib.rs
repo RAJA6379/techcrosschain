@@ -4,7 +4,7 @@ use anchor_spl::token::{
     self, Burn, Mint, MintTo, Token, TokenAccount, Transfer,
 };
 
-declare_id!("GHwq3cme1Kfm8TAgTUatuNW8Aw9Mm5KgsWQW9zP3QagQ");
+declare_id!("C16AEqbg9oByBacWyG9uoVDFFSf8q3sY7WvXQscdk3jd");
 
 const SWAP_FEE_BPS: u16 = 30;
 const BPS_DENOMINATOR: u128 = 10_000;
