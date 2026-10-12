@@ -567,7 +567,6 @@ const solanaBalanceFor = (symbol) => {
           <button>Liquidity</button>
           <button>Earn</button>
         </nav>
-rkjfherufgyu
         <div className="header-actions">
           {/* NETWORK BUTTON */}
           <div className="network-menu-wrap">
