@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+# Anchor / Solana build files
+solana-program/node_modules/
+solana-program/target/
+solana-program/.anchor/
+solana-program/test-ledger/
+
+# Development wallet secrets
+.devnet-token-wallet.json
+solana-program/.env
+solana-program/**/*.json.key
