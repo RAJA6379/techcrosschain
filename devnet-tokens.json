@@ -1,0 +1,22 @@
+[
+  {
+    "name": "MinSwap Token A",
+    "symbol": "MSTA",
+    "mint": "6yo8bHAeuFSj12kmxFhZSdmj5RjBRk5iqaBQr5XcWDXm",
+    "decimals": 6,
+    "supply": "1000000",
+    "owner": "7AiFjTgdatJqXhFutR3qHveetoo7rN6uPLgSACrWSGxm",
+    "tokenAccount": "EkaLch6EmZn625Q7UWGApMMA92PKvQM8PdjeJzsUfnqY",
+    "transaction": "3uCAjQHSgrdtMF2WLT2yphAcVYLgxVyyrywEDshuU8jMswCo8k8MBYR1of6cJXGuFKfuEzj1khw9PihUF4XB214K"
+  },
+  {
+    "name": "MinSwap Token B",
+    "symbol": "MSTB",
+    "mint": "EQ5zHatuNJU8oRmU3KQHZSLKQ3wyJpHRFentnW9ktiQR",
+    "decimals": 6,
+    "supply": "1000000",
+    "owner": "7AiFjTgdatJqXhFutR3qHveetoo7rN6uPLgSACrWSGxm",
+    "tokenAccount": "4j6zMsYfwzcroQs5bLj15gEzx5nzb837av9GnaVFena1",
+    "transaction": "2cghxXNfUhsxyhm8C3WWfxEwpBUFZ82E1Eo8BPd6VjLDnT5FEPMVmZfZHP5piXy4Pmxg3vNX91tsH4o9xBmMij9f"
+  }
+]

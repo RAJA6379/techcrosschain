@@ -1,0 +1,3004 @@
+MINSwAP PROJECT DEBUG REPORT
+
+
+========== FILE: C:\pilotcross-main\pilotcross-main\contracts\.deps\npm\@openzeppelin\contracts@5.6.1\package.json ==========
+
+{
+  "name": "@openzeppelin/contracts",
+  "description": "Secure Smart Contract library for Solidity",
+  "version": "5.6.1",
+  "files": [
+    "**/*.sol",
+    "/build/contracts/*.json",
+    "!/mocks/**/*"
+  ],
+  "scripts": {
+    "prepack": "bash ../scripts/prepack.sh",
+    "prepare-docs": "cd ..; npm run prepare-docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OpenZeppelin/openzeppelin-contracts.git"
+  },
+  "keywords": [
+    "solidity",
+    "ethereum",
+    "smart",
+    "contracts",
+    "security",
+    "zeppelin"
+  ],
+  "author": "OpenZeppelin Community <maintainers@openzeppelin.org>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/OpenZeppelin/openzeppelin-contracts/issues"
+  },
+  "homepage": "https://openzeppelin.com/contracts/"
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\package.json ==========
+
+{
+  "name": "minswap-web3",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@gardenfi/core": "^3.1.3",
+    "@gardenfi/orderbook": "^3.1.3",
+    "@gardenfi/utils": "^3.1.1",
+    "@metamask/connect-solana": "^2.1.1",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/wallet-adapter-base": "^0.9.28",
+    "@solana/wallet-adapter-react": "^0.15.40",
+    "@solana/wallet-adapter-react-ui": "^0.9.40",
+    "@solana/web3.js": "^1.99.0",
+    "@wallet-standard/app": "^1.1.1",
+    "buffer": "^6.0.3",
+    "ethers": "^6.17.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "viem": "^2.57.4"
+  },
+  "devDependencies": {
+    "@openzeppelin/contracts": "^5.4.0",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@vitejs/plugin-react": "^5.0.4",
+    "jsdom": "^30.1.2",
+    "vite": "^7.1.7",
+    "vite-plugin-node-polyfills": "^0.28.0",
+    "vite-plugin-wasm": "^3.6.0",
+    "vitest": "^5.0.3"
+  }
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\scripts\createSolanaTokens.js ==========
+
+
+import fs from "node:fs";
+import path from "node:path";
+
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  clusterApiUrl,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
+
+import {
+  createMint,
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
+} from "@solana/spl-token";
+
+const connection = new Connection(
+  clusterApiUrl("devnet"),
+  "confirmed"
+);
+
+const walletFile = path.resolve(
+  ".devnet-token-wallet.json"
+);
+
+const outputFile = path.resolve(
+  "devnet-tokens.json"
+);
+
+const tokens = [
+  { name: "MinSwap Token A", symbol: "MSTA" },
+  { name: "MinSwap Token B", symbol: "MSTB" },
+];
+
+const decimals = 6;
+const supply = 1_000_000n * 10n ** 6n;
+
+// Generate a separate Devnet development wallet.
+function getDevelopmentWallet() {
+  if (fs.existsSync(walletFile)) {
+    const secret = JSON.parse(
+      fs.readFileSync(walletFile, "utf8")
+    );
+
+    return Keypair.fromSecretKey(
+      Uint8Array.from(secret)
+    );
+  }
+
+  const wallet = Keypair.generate();
+
+  fs.writeFileSync(
+    walletFile,
+    JSON.stringify(Array.from(wallet.secretKey)),
+    { mode: 0o600 }
+  );
+
+  return wallet;
+}
+
+async function main() {
+  const phantomAddress = process.argv[2];
+
+  if (!phantomAddress) {
+    throw new Error(
+      "Provide your Phantom public wallet address."
+    );
+  }
+
+  const recipient = new PublicKey(phantomAddress);
+  const payer = getDevelopmentWallet();
+
+  console.log("Network: Solana Devnet");
+  console.log(
+    "Development wallet:",
+    payer.publicKey.toBase58()
+  );
+
+  if (fs.existsSync(outputFile)) {
+    console.log(
+      "Token output already exists. No new tokens created."
+    );
+    return;
+  }
+
+  const balance = await connection.getBalance(
+    payer.publicKey
+  );
+
+  console.log(
+    "Development wallet balance:",
+    balance / LAMPORTS_PER_SOL,
+    "SOL"
+  );
+
+  if (balance < 0.05 * LAMPORTS_PER_SOL) {
+    console.log(
+      "\nFund the development wallet with " +
+      "about 0.1 Devnet SOL, then run this " +
+      "command again."
+    );
+    return;
+  }
+
+  const results = [];
+
+  for (const token of tokens) {
+    console.log(`Creating ${token.symbol}...`);
+
+    const mint = await createMint(
+      connection,
+      payer,
+      payer.publicKey,
+      null,
+      decimals
+    );
+
+    const tokenAccount =
+      await getOrCreateAssociatedTokenAccount(
+        connection,
+        payer,
+        mint,
+        recipient
+      );
+
+    const signature = await mintTo(
+      connection,
+      payer,
+      mint,
+      tokenAccount.address,
+      payer,
+      supply
+    );
+
+    const result = {
+      name: token.name,
+      symbol: token.symbol,
+      mint: mint.toBase58(),
+      decimals,
+      supply: "1000000",
+      owner: recipient.toBase58(),
+      tokenAccount: tokenAccount.address.toBase58(),
+      transaction: signature,
+    };
+
+    results.push(result);
+
+    console.log(`${token.symbol} created`);
+    console.log("Mint:", result.mint);
+    console.log("Transaction:", signature);
+  }
+
+  fs.writeFileSync(
+    outputFile,
+    JSON.stringify(results, null, 2)
+  );
+
+  console.log("\nToken creation completed!");
+  console.log("Saved to devnet-tokens.json");
+}
+
+main().catch((error) => {
+  console.error("Error:", error.message);
+  process.exitCode = 1;
+});
+
+========== FILE: C:\pilotcross-main\pilotcross-main\solana-program\package.json ==========
+
+{
+  "license": "ISC",
+  "scripts": {
+    "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
+    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "0.32.1"
+  },
+  "devDependencies": {
+    "@solana/spl-token": "^0.4.15",
+    "chai": "^4.3.4",
+    "mocha": "^12.0.3",
+    "prettier": "^2.6.2"
+  }
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\solana-program\target\types\minswap_solana.ts ==========
+
+/**
+ * Program IDL in camelCase format in order to be used in JS/TS.
+ *
+ * Note that this is only a type helper and is not the actual IDL. The original
+ * IDL can be found at `target/idl/minswap_solana.json`.
+ */
+export type MinswapSolana = {
+  "address": "GHwq3cme1Kfm8TAgTUatuNW8Aw9Mm5KgsWQW9zP3QagQ",
+  "metadata": {
+    "name": "minswapSolana",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "addLiquidity",
+      "discriminator": [
+        181,
+        157,
+        89,
+        67,
+        143,
+        182,
+        52,
+        72
+      ],
+      "accounts": [
+        {
+          "name": "provider",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "tokenAMint",
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "tokenBMint",
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "providerTokenA",
+          "writable": true
+        },
+        {
+          "name": "providerTokenB",
+          "writable": true
+        },
+        {
+          "name": "tokenAVault",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "tokenBVault",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amountA",
+          "type": "u64"
+        },
+        {
+          "name": "amountB",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initializePool",
+      "discriminator": [
+        95,
+        180,
+        10,
+        172,
+        84,
+        174,
+        232,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tokenAMint"
+              },
+              {
+                "kind": "account",
+                "path": "tokenBMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tokenAMint"
+        },
+        {
+          "name": "tokenBMint"
+        },
+        {
+          "name": "tokenAVault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tokenBVault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  98
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "pool",
+      "discriminator": [
+        241,
+        154,
+        109,
+        4,
+        17,
+        177,
+        109,
+        188
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "invalidMintOrder",
+      "msg": "Token mints must be distinct and ordered"
+    },
+    {
+      "code": 6001,
+      "name": "invalidAmount",
+      "msg": "Both token amounts must be greater than zero"
+    },
+    {
+      "code": 6002,
+      "name": "poolAlreadyFunded",
+      "msg": "Initial liquidity has already been deposited"
+    }
+  ],
+  "types": [
+    {
+      "name": "pool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenAMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenBMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenAVault",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenBVault",
+            "type": "pubkey"
+          },
+          {
+            "name": "totalLiquidity",
+            "type": "u64"
+          },
+          {
+            "name": "feeBps",
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+};
+
+========== FILE: C:\pilotcross-main\pilotcross-main\solana-program\tests\minswap-solana.js ==========
+
+
+const anchor = require("@coral-xyz/anchor");
+const assert = require("assert");
+
+const {
+  PublicKey,
+  SystemProgram,
+  SYSVAR_RENT_PUBKEY,
+} = anchor.web3;
+
+const {
+  TOKEN_PROGRAM_ID,
+  createMint,
+  getAccount,
+} = require("@solana/spl-token");
+
+describe("MinSwap Solana - Pool Initialization", () => {
+  // Use the Anchor provider from Anchor.toml
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
+
+  const program = anchor.workspace.minswapSolana;
+  const connection = provider.connection;
+  const wallet = provider.wallet;
+
+  it("Creates a pool and two token vaults", async () => {
+    // STEP 1: Create two temporary Localnet SPL tokens.
+    const mint1 = await createMint(
+      connection,
+      wallet.payer,
+      wallet.publicKey,
+      null,
+      6
+    );
+
+    const mint2 = await createMint(
+      connection,
+      wallet.payer,
+      wallet.publicKey,
+      null,
+      6
+    );
+
+    // STEP 2: Sort the mint addresses.
+    // Your Rust contract requires token A < token B.
+    const [tokenA, tokenB] =
+      Buffer.compare(mint1.toBuffer(), mint2.toBuffer()) < 0
+        ? [mint1, mint2]
+        : [mint2, mint1];
+
+    // STEP 3: Derive the pool PDA.
+    const [poolPda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("pool"),
+        tokenA.toBuffer(),
+        tokenB.toBuffer(),
+      ],
+      program.programId
+    );
+
+    // STEP 4: Derive the token vault PDAs.
+    const [vaultA] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("vault_a"),
+        poolPda.toBuffer(),
+      ],
+      program.programId
+    );
+
+    const [vaultB] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("vault_b"),
+        poolPda.toBuffer(),
+      ],
+      program.programId
+    );
+
+    // STEP 5: Initialize the pool with every required account.
+    const tx = await program.methods
+      .initializePool()
+      .accountsStrict({
+        authority: wallet.publicKey,
+        pool: poolPda,
+        tokenAMint: tokenA,
+        tokenBMint: tokenB,
+        tokenAVault: vaultA,
+        tokenBVault: vaultB,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .rpc();
+
+    // STEP 6: Read and verify the pool state.
+    const pool = await program.account.pool.fetch(poolPda);
+
+    assert.strictEqual(
+      pool.tokenAMint.toBase58(),
+      tokenA.toBase58()
+    );
+
+    assert.strictEqual(
+      pool.tokenBMint.toBase58(),
+      tokenB.toBase58()
+    );
+
+    assert.strictEqual(
+      pool.tokenAVault.toBase58(),
+      vaultA.toBase58()
+    );
+
+    assert.strictEqual(
+      pool.tokenBVault.toBase58(),
+      vaultB.toBase58()
+    );
+
+    assert.strictEqual(
+      pool.authority.toBase58(),
+      wallet.publicKey.toBase58()
+    );
+
+    assert.strictEqual(pool.totalLiquidity.toString(), "0");
+    assert.strictEqual(pool.feeBps, 30);
+
+    // STEP 7: Verify both SPL token vault accounts.
+    const tokenAVault = await getAccount(connection, vaultA);
+    const tokenBVault = await getAccount(connection, vaultB);
+
+    assert.strictEqual(
+      tokenAVault.owner.toBase58(),
+      poolPda.toBase58()
+    );
+
+    assert.strictEqual(
+      tokenBVault.owner.toBase58(),
+      poolPda.toBase58()
+    );
+
+    assert.strictEqual(tokenAVault.amount, 0n);
+    assert.strictEqual(tokenBVault.amount, 0n);
+
+    console.log("Pool initialized successfully!");
+    console.log("Pool address:", poolPda.toBase58());
+    console.log("Token A vault:", vaultA.toBase58());
+    console.log("Token B vault:", vaultB.toBase58());
+    console.log("Transaction:", tx);
+  });
+});
+
+========== FILE: C:\pilotcross-main\pilotcross-main\src\App.jsx ==========
+
+import { useEffect, useRef, useState } from "react";
+import { BrowserProvider, Contract, formatEther, formatUnits } from "ethers";
+import { connectWallet, discoverWallets, shortAddress } from "./web3/wallet";
+import { NETWORK } from "./web3/config";
+import { EVM_NETWORKS, getNetworkInfo, switchEvmNetwork } from "./web3/networks";
+// import SolanaPanel from "./solana/SolanaPanel";
+import SwapCard from "./swap/SwapCard";
+import { getSolanaTokenBalances } from "./solana/token";
+
+import {
+  connectSolanaWallet,
+  getSolanaBalance,
+  disconnectSolanaWallet,
+} from "./solana/wallet";
+import {
+  executeSwap,
+  getSwapQuote,
+  getTokenBalances,
+} from "./web3/swap";
+
+
+const tokens = {
+  MSTA: { symbol: "MSTA", icon: "A" },
+  MSTB: { symbol: "MSTB", icon: "B" },
+};
+
+
+const ERC20_ABI = ["function balanceOf(address) view returns (uint256)"];
+
+function TokenSelect({ value, onChange, exclude }) {
+  return (
+    <select className="token-select" value={value} onChange={(e) => onChange(e.target.value)}>
+      {Object.keys(tokens).filter((k) => k !== exclude).map((k) => (
+        <option key={k} value={k}>{tokens[k].icon} {k}</option>
+      ))}
+    </select>
+  );
+}
+
+function WalletLogo({ icon, name, size = 24 }) {
+  const [failed, setFailed] = useState(false);
+  if (icon && !failed) {
+    return (
+      <img src={icon} alt={name || "Wallet"} className="connected-wallet-logo"
+        style={{ width: size, height: size }} onError={() => setFailed(true)} />
+    );
+  }
+  return <span className="wallet-logo-fallback" style={{ width: size, height: size }}>{(name || "W")[0]}</span>;
+}
+
+// Real chain logo, falls back to the glyph if the image cannot load.
+function NetIcon({ net }) {
+  const [failed, setFailed] = useState(false);
+  const showLogo = net.logo && !failed;
+  return (
+    <span className={`network-icon ${showLogo ? "has-logo" : ""}`} style={{ background: net.color }}>
+      {showLogo
+        ? <img className="net-img" src={net.logo} alt={net.name} onError={() => setFailed(true)} />
+        : net.icon}
+    </span>
+  );
+}
+
+// SVG chevron (the old "⌄" text glyph is missing from the font and rendered as "v").
+function Chevron({ open }) {
+  return (
+    <svg className={`chev ${open ? "open" : ""}`} width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M5 7.5l5 5 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Collect wallet icons announced by every installed extension (EIP-6963).
+function useAnnouncedWallets() {
+  const [list, setList] = useState([]);
+  useEffect(() => {
+    const onAnnounce = (e) => {
+      const d = e.detail;
+      if (!d?.info) return;
+      setList((prev) => (prev.some((w) => w.info.uuid === d.info.uuid) ? prev : [...prev, d]));
+    };
+    window.addEventListener("eip6963:announceProvider", onAnnounce);
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+    return () => window.removeEventListener("eip6963:announceProvider", onAnnounce);
+  }, []);
+  return list;
+}
+
+// Networks this wallet has actually been seen on (remembered per wallet).
+const chainsKey = (walletName) => `minswap-wallet-chains:${walletName}`;
+function loadChains(walletName) {
+  try { return JSON.parse(localStorage.getItem(chainsKey(walletName)) || "[]"); } catch { return []; }
+}
+function saveChains(walletName, ids) {
+  try { localStorage.setItem(chainsKey(walletName), JSON.stringify(ids)); } catch { /* ignore */ }
+}
+
+const labelKey = (address) => `minswap-account-label:${address.toLowerCase()}`;
+function getLabel(address, index) {
+  try { return localStorage.getItem(labelKey(address)) || `Account ${index + 1}`; }
+  catch { return `Account ${index + 1}`; }
+}
+
+export default function App() {
+
+
+  // SOLANA WALLET STATES
+  const [solanaAccount, setSolanaAccount] = useState(null);
+  const [solanaBalance, setSolanaBalance] = useState(null);
+  const [solanaBusy, setSolanaBusy] = useState(false);
+  const [solanaError, setSolanaError] = useState("");
+  const [solanaTokenBalances, setSolanaTokenBalances] = useState([]);
+
+
+  const [chainView, setChainView] = useState("evm");
+  const [account, setAccount] = useState(null);
+  const [accounts, setAccounts] = useState([]);   // every address the wallet shared
+  const [balances, setBalances] = useState({});   // native balance per address
+  const [btc, setBtc] = useState(null);           // wrapped-BTC balance of active account
+  const [error, setError] = useState("");
+  const [from, setFrom] = useState("MSTA");
+  const [to, setTo] = useState("MSTB");
+  const [amount, setAmount] = useState("");
+  const [slippage, setSlippage] = useState("0.5");
+
+  const [connecting, setConnecting] = useState(false);
+  const [swapStatus, setSwapStatus] = useState("");
+  const [quote, setQuote] = useState(null);
+  const [quoteError, setQuoteError] = useState("");
+  const [tokenBalances, setTokenBalances] = useState({});
+
+  const [walletOptions, setWalletOptions] = useState([]);
+  const [walletModal, setWalletModal] = useState(false);
+  const [networkOpen, setNetworkOpen] = useState(false);
+  const [walletMenuOpen, setWalletMenuOpen] = useState(false);
+
+  const [walletIcon, setWalletIcon] = useState(null);
+  const [draftLabel, setDraftLabel] = useState("");
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [, setLabelTick] = useState(0);
+  const [copyMessage, setCopyMessage] = useState("");
+
+  const [walletChains, setWalletChains] = useState([]); // chain ids seen on this wallet
+  const [showMore, setShowMore] = useState(false);
+  const announced = useAnnouncedWallets();
+  const selectedWalletRef = useRef(null);
+  const selectedWalletName = useRef("");
+  const network = getNetworkInfo(account?.chainId);
+  const detected = EVM_NETWORKS.filter((n) => walletChains.includes(n.chainId));
+  const others = EVM_NETWORKS.filter((n) => !walletChains.includes(n.chainId));
+  const accountLabel = account ? getLabel(account.address, 0) : "";
+
+  function saveAccountLabel() {
+    if (!account) return;
+    const label = draftLabel.trim() || "Account 1";
+    try { localStorage.setItem(labelKey(account.address), label); }
+    catch { setError("Could not save account name in this browser."); }
+    setLabelTick((t) => t + 1);
+    setEditingLabel(false);
+  }
+
+  // Re-read chain, ALL accounts, balances and wrapped BTC from the wallet.
+  async function refreshAccount(injected) {
+    if (!injected?.request) return;
+    const [chainHex, addresses] = await Promise.all([
+      injected.request({ method: "eth_chainId" }),
+      injected.request({ method: "eth_accounts" }),
+    ]);
+    if (selectedWalletRef.current !== injected) return;
+    if (!addresses?.length) { handleDisconnect(); return; }
+
+    const bp = new BrowserProvider(injected);
+    const chainId = Number(chainHex);
+    const net = getNetworkInfo(chainId);
+
+    const bal = {};
+    await Promise.all(addresses.map(async (a) => {
+      try { bal[a] = formatEther(await bp.getBalance(a)); } catch { bal[a] = "0"; }
+    }));
+
+    let btcBal = null;
+    if (net.btc) {
+      try {
+        const c = new Contract(net.btc.address, ERC20_ABI, bp);
+        btcBal = formatUnits(await c.balanceOf(addresses[0]), net.btc.decimals);
+      } catch { btcBal = "0"; }
+    }
+    if (selectedWalletRef.current !== injected) return;
+
+    setWalletChains((prev) => {
+      if (prev.includes(chainId)) return prev;
+      const next = [...prev, chainId];
+      saveChains(selectedWalletName.current, next);
+      return next;
+    });
+    setAccounts(addresses);
+    setBalances(bal);
+    setBtc(btcBal);
+    setAccount((prev) => prev && {
+      ...prev, provider: bp, injectedProvider: injected,
+      address: addresses[0], chainId, balance: bal[addresses[0]],
+    });
+  }
+
+  // Wallet events + light polling so new funds/tokens appear without reload.
+  useEffect(() => {
+    if (!account) return;
+    const injected = selectedWalletRef.current;
+    if (!injected?.on) return;
+
+    const run = (msg) => refreshAccount(injected).catch((e) => setError(e?.message || msg));
+    const onChain = () => { setNetworkOpen(false); run("Network update failed."); };
+    const onAccounts = (addrs) => { if (!addrs?.length) handleDisconnect(); else run("Account update failed."); };
+
+    injected.on("chainChanged", onChain);
+    injected.on("accountsChanged", onAccounts);
+    const timer = setInterval(() => run("Refresh failed."), 12000);
+
+    return () => {
+      clearInterval(timer);
+      injected.removeListener?.("chainChanged", onChain);
+      injected.removeListener?.("accountsChanged", onAccounts);
+    };
+  }, [account?.injectedProvider, account?.walletName]);
+
+  // Close menus with Escape.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") { setNetworkOpen(false); setWalletMenuOpen(false); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  async function handleConnect() {
+    setError(""); setConnecting(true);
+    try {
+      const wallets = await discoverWallets();
+      setWalletOptions(wallets);
+      setWalletModal(true);
+      if (!wallets.length) setError("No compatible wallet found. Enable MetaMask, Trust Wallet, or Phantom.");
+    } catch (err) {
+      setError(err?.message || "Wallet detection failed.");
+    } finally { setConnecting(false); }
+  }
+
+  async function handleSelectWallet(wallet) {
+    setConnecting(true); setError("");
+    try {
+      const connected = await connectWallet(wallet);
+      selectedWalletRef.current = wallet.provider;
+      const hit = announced.find((a) => a.provider === wallet.provider || a.info.name === wallet.name);
+      setWalletIcon(wallet.icon || hit?.info?.icon || null);
+      selectedWalletName.current = connected.walletName || wallet.name;
+      setWalletChains(loadChains(selectedWalletName.current));
+      setShowMore(false);
+      setAccount(connected);
+      setWalletModal(false); setNetworkOpen(false); setWalletMenuOpen(false);
+      await refreshAccount(wallet.provider);
+    } catch (err) {
+      setError(err?.message || "Failed to connect wallet.");
+    } finally { setConnecting(false); }
+  }
+
+  function handleDisconnect() {
+    selectedWalletRef.current = null;
+    setAccount(null); setWalletChains([]); setAccounts([]); setBalances({}); setBtc(null);
+    setWalletIcon(null); setDraftLabel("");
+    setWalletMenuOpen(false); setNetworkOpen(false);
+    setEditingLabel(false); setCopyMessage(""); setError("");
+  }
+
+  async function chooseNetwork(selected) {
+    if (!account) { setError("Connect your wallet first."); return; }
+    setNetworkOpen(false); setConnecting(true); setError("");
+    try {
+      const injected = selectedWalletRef.current;
+      if (!injected) throw new Error("Wallet provider unavailable.");
+      await switchEvmNetwork(injected, selected);
+      await refreshAccount(injected);
+    } catch (err) {
+      setError(err?.message || "Could not switch network.");
+    } finally { setConnecting(false); }
+  }
+
+  // Opens the wallet's own account picker so the user can allow more accounts / change the active one.
+  async function manageAccounts() {
+    const injected = selectedWalletRef.current;
+    if (!injected) return;
+    try {
+      await injected.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] });
+      await refreshAccount(injected);
+    } catch (err) {
+      if (err?.code !== 4001) setError(err?.message || "Could not open account picker.");
+    }
+  }
+
+  async function copyAddress(address) {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopyMessage("Address copied!");
+    } catch { setCopyMessage("Unable to copy address."); }
+    setTimeout(() => setCopyMessage(""), 1800);
+  }
+
+  /* ========================================
+     LIVE SWAP QUOTATION
+  ======================================== */
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setQuote(null);
+    setQuoteError("");
+
+    if (
+      !account ||
+      account.chainId !== NETWORK.chainId ||
+      !amount.trim()
+    ) {
+      return;
+    }
+
+    if (
+      !/^\d+(\.\d*)?$/.test(amount.trim()) ||
+      Number(amount) <= 0
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const result = await getSwapQuote(
+          account,
+          amount,
+          from === "MSTA",
+          slippage
+        );
+
+        if (!cancelled) {
+          setQuote(result);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setQuoteError(
+            err?.shortMessage ||
+            err?.message ||
+            "Unable to fetch swap quotation."
+          );
+        }
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    account?.address,
+    account?.chainId,
+    account?.provider,
+    amount,
+    from,
+    to,
+    slippage,
+  ]);
+
+
+  /* ========================================
+     LOAD MSTA AND MSTB TOKEN BALANCES
+  ======================================== */
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (
+      !account ||
+      account.chainId !== NETWORK.chainId
+    ) {
+      setTokenBalances({});
+      return;
+    }
+
+    async function loadBalances() {
+      try {
+        const balances = await getTokenBalances(account);
+
+        if (!cancelled) {
+          setTokenBalances(balances);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setTokenBalances({});
+          console.error("Balance loading error:", err);
+        }
+      }
+    }
+
+    loadBalances();
+
+    const interval = setInterval(loadBalances, 12000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [
+    account?.address,
+    account?.chainId,
+    account?.provider,
+  ]);
+
+
+  /* =========================================
+     SOLANA WALLET FUNCTIONS
+  ========================================= */
+
+ 
+async function connectSolana(walletName) {
+  setSolanaBusy(true);
+  setSolanaError("");
+
+  try {
+    // Connect the selected wallet first.
+    const connected = await connectSolanaWallet(walletName);
+
+    // Save the connection immediately so the UI can show it.
+    setSolanaAccount(connected);
+    setSolanaBalance(null);
+    setWalletMenuOpen(false);
+
+    // Fetch the Devnet balance separately.
+    try {
+      const balance = await getSolanaBalance(connected.address);
+      setSolanaBalance(balance);
+    } catch (balanceError) {
+      console.error("SOL balance loading failed:", balanceError);
+      setSolanaError(
+        "Wallet connected, but SOL balance could not be loaded. Check the Solana network and RPC."
+      );
+    }
+  } catch (err) {
+    console.error("Solana wallet connection failed:", err);
+    setSolanaError(
+      err?.message || "Solana wallet connection failed."
+    );
+  } finally {
+    setSolanaBusy(false);
+  }
+}
+
+  async function refreshSolana() {
+    if (!solanaAccount) return;
+
+    setSolanaBusy(true);
+
+    try {
+      const balance = await getSolanaBalance(
+        solanaAccount.address
+      );
+
+      setSolanaBalance(balance);
+      setSolanaError("");
+    } catch (err) {
+      setSolanaError(
+        err?.message || "Failed to refresh SOL balance."
+      );
+    } finally {
+      setSolanaBusy(false);
+    }
+  }
+
+
+
+ 
+async function disconnectSolana() {
+  setSolanaBusy(true);
+  setSolanaError("");
+
+  try {
+    if (solanaAccount) await disconnectSolanaWallet(solanaAccount);
+  } finally {
+    setSolanaAccount(null);
+    setSolanaBalance(null);
+    setWalletMenuOpen(false);
+    setNetworkOpen(false);
+    setChainView("solana");
+    setSolanaBusy(false);
+  }
+}
+
+  async function handleSwap() {
+    if (!account) { await handleConnect(); return; }
+    if (!amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+      setError("Enter a valid swap amount."); return;
+    }
+    setError(""); setConnecting(true);
+    try {
+      if (account.chainId !== NETWORK.chainId) throw new Error("Your SwapPool is configured on Sepolia only. Switch to Sepolia.");
+      if (from === "ETH" || to === "ETH") throw new Error("Native ETH swaps are not supported by this ERC-20 SwapPool.");
+      const receipt = await executeSwap(account, amount, true);
+      console.log("Swap transaction:", receipt);
+      setAmount("");
+    } catch (err) {
+      setError(err?.shortMessage || err?.message || "Swap failed.");
+    } finally { setConnecting(false); }
+  }
+useEffect(() => {
+  if (!solanaAccount?.address) {
+    setSolanaTokenBalances([]);
+    return;
+  }
+
+  let active = true;
+
+  const loadBalances = async () => {
+    try {
+      const result = await getSolanaTokenBalances(
+        solanaAccount.address
+      );
+
+      if (active) setSolanaTokenBalances(result);
+    } catch (err) {
+      console.error("Solana balance error:", err);
+    }
+  };
+
+  loadBalances();
+
+  const timer = setInterval(loadBalances, 12000);
+
+  return () => {
+    active = false;
+    clearInterval(timer);
+  };
+}, [solanaAccount?.address]);
+
+const solanaBalanceFor = (symbol) => {
+  if (!solanaAccount) return "—";
+
+  const token = SOLANA_TOKENS.find(
+    (item) => item.symbol === symbol
+  );
+
+  const result = solanaTokenBalances.find(
+    (item) => item.mint === token?.mint
+  );
+
+  if (!result) return "—";
+
+  return Number(result.balance).toLocaleString("en-US", {
+    maximumFractionDigits: 6,
+  });
+};
+  function swapTokens() { setFrom(to); setTo(from); }
+
+  return (
+    <div className="app">
+      {/* ================= NAVBAR ================= */}
+      <header className="header">
+        <div className="brand">
+          <img src="/assets/minswap-logo.svg" alt="MinSwap" />
+          <span>MinSwap</span>
+        </div>
+
+        <nav>
+          <button className={chainView !== "crosschain" ? "nav-active" : ""} onClick={() => { if (chainView === "crosschain") setChainView("evm"); }}>Swap</button>
+          <button className={chainView === "crosschain" ? "nav-active" : ""} onClick={() => setChainView("crosschain")}>Cross-chain</button>
+          <button>Liquidity</button>
+          <button>Earn</button>
+        </nav>
+
+        <div className="header-actions">
+          {/* NETWORK BUTTON */}
+          <div className="network-menu-wrap">
+            <button
+              className="network-trigger"
+              disabled={connecting}
+              aria-expanded={networkOpen}
+              onClick={() => { setWalletMenuOpen(false); setNetworkOpen((p) => !p); }}
+            >
+
+              <NetIcon
+                net={
+                  chainView === "solana"
+                    ? {
+                      name: "Solana Devnet",
+                      color: "#7752C7",
+                      icon: "◎",
+                    }
+                    : network
+                }
+              />
+
+
+              <span className="network-trigger-text">
+                {chainView === "solana"
+                  ? "Solana Devnet"
+                  : account
+                    ? network.name
+                    : "Network"}
+              </span>
+              <Chevron open={networkOpen} />
+            </button>
+
+            {networkOpen && (
+              <>
+                <button className="menu-dismiss" aria-label="Close network menu" onClick={() => setNetworkOpen(false)} />
+                <div className="network-dropdown">
+                  <div className="dropdown-heading">Select network</div>
+                  <p>Choose a blockchain network for your wallet.</p>
+
+
+                  {/* SOLANA DEVNET NETWORK OPTION */}
+
+                  <button
+                    className="network-row"
+                    onClick={() => {
+                      setChainView("solana");
+                      setNetworkOpen(false);
+                      setWalletMenuOpen(false);
+                      setError("");
+                    }}
+                  >
+                    <span
+                      className="network-icon"
+                      style={{
+                        background: "#7752C7",
+                      }}
+                    >
+                      ◎
+                    </span>
+
+                    <span className="network-description">
+                      <strong>
+                        Solana Devnet
+                        <span className="testnet-tag">
+                          TESTNET
+                        </span>
+                      </strong>
+
+                      <small>
+                        {solanaAccount
+                          ? `${solanaAccount.walletName} • ${solanaAccount.address.slice(0, 6)
+                          }...${solanaAccount.address.slice(-4)
+                          }`
+                          : "Connect a Solana wallet"}
+                      </small>
+                    </span>
+
+                    {chainView === "solana" && (
+                      <span className="active-check">✓</span>
+                    )}
+                  </button>
+
+
+                  {account && (
+                    <div className="wallet-chip">
+                      <WalletLogo icon={walletIcon} name={account.walletName} size={22} />
+                      <span>Networks in <strong>{account.walletName}</strong></span>
+                    </div>
+                  )}
+
+                  {detected.map((item) => (
+                    <button key={item.chainId} className="network-row" disabled={connecting} onClick={() => {
+                      setChainView("evm");
+                      chooseNetwork(item);
+                    }}>
+                      <NetIcon net={item} />
+                      <span className="network-description">
+                        <strong>{item.name}{item.testnet && <span className="testnet-tag">TESTNET</span>}</strong>
+                        <small title={account?.address}>{shortAddress(account.address)}</small>
+                      </span>
+                      {account?.chainId === item.chainId && <span className="active-check">✓</span>}
+                    </button>
+                  ))}
+                  {account && !detected.some((n) => n.chainId === account.chainId) && (
+                    <div className="network-menu-note">Current network (chain {account.chainId}) is not in MinSwap's list.</div>
+                  )}
+                  {!account && <div className="network-menu-note">Connect a wallet to see its networks.</div>}
+
+                  {account && others.length > 0 && (
+                    <>
+                      <button className="mini-btn more-btn" onClick={() => setShowMore((v) => !v)}>
+                        {showMore ? "Hide other networks" : "Request another network"}
+                      </button>
+                      {showMore && others.map((item) => (
+                        <button key={item.chainId} className="network-row" disabled={connecting} onClick={() => {
+                          setChainView("evm");
+                          chooseNetwork(item);
+                        }}>
+                          <NetIcon net={item} />
+                          <span className="network-description"><strong>{item.name}</strong><small>Ask {account.walletName} to switch</small></span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  <div className="network-menu-note">
+                    Only networks your wallet has been on are listed. Switch network inside your wallet and it appears here automatically.
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* WALLET ACCOUNT BUTTON */}
+          <div className="wallet-menu-wrap">
+            <button
+              className="connect"
+              disabled={connecting}
+              aria-expanded={account ? walletMenuOpen : undefined}
+onClick={() => {
+  setNetworkOpen(false);
+
+  if (chainView === "solana") {
+    if (!solanaAccount) {
+      connectSolana("Phantom");
+    } else {
+      setWalletMenuOpen((prev) => !prev);
+    }
+    return;
+  }
+
+  if (account) {
+    setWalletMenuOpen((prev) => !prev);
+  } else {
+    handleConnect();
+  }
+}}
+            >
+
+              {chainView === "solana" && solanaAccount ? (
+                <span className="wallet-logo-fallback">
+                  ◎
+                </span>
+              ) : account ? (
+                <WalletLogo
+                  icon={walletIcon}
+                  name={account.walletName}
+                />
+              ) : null}
+
+
+              <span className="connect-label">
+                {connecting || solanaBusy
+                  ? "Connecting..."
+                  : chainView === "solana"
+                    ? solanaAccount
+                      ? solanaAccount.walletName
+                      : "Connect Wallet"
+                    : account
+                      ? accountLabel
+                      : "Connect Wallet"}
+              </span>
+
+              {(account || solanaAccount || chainView === "solana") && (
+                <Chevron open={walletMenuOpen} />
+              )}
+            </button>
+            {walletMenuOpen && (account || solanaAccount || chainView === "solana") && (
+              <>
+                <button className="menu-dismiss" aria-label="Close account menu" onClick={() => setWalletMenuOpen(false)} />
+                <div className="wallet-profile-menu">
+
+                  {/* ========================================
+    SOLANA DEVNET ACCOUNT DETAILS
+======================================== */}
+
+                  {chainView === "solana" && (
+                    <>
+                      <span className="dropdown-heading">
+                        Solana Account Details
+                      </span>
+
+                      {!solanaAccount ? (
+                        <div className="account-address-box">
+                          <p>Connect a Solana wallet</p>
+
+                          <button
+                            className="account-action"
+                            disabled={solanaBusy}
+                            onClick={() => connectSolana("Phantom")}
+                          >
+                            Connect Phantom
+                          </button>
+
+                          {/* <button
+                            className="account-action"
+                            disabled={solanaBusy}
+                            onClick={() => connectSolana("MetaMask")}
+                          >
+                            Connect MetaMask Solana
+                          </button> */}
+
+
+                          
+<button
+  className="disconnect-option"
+  disabled={solanaBusy}
+  onClick={disconnectSolana}
+>
+  Disconnect from MinSwap
+</button>
+
+
+
+                        </div>
+                      ) : (
+                        <>
+                          <div className="wallet-identity-row">
+                            <span className="wallet-logo-fallback">
+                              ◎
+                            </span>
+
+                            <div>
+                              <strong>{solanaAccount.walletName}</strong>
+                              <small>Solana Devnet</small>
+                            </div>
+                          </div>
+
+                          <div className="account-address-box">
+                            <span className="address-caption">
+                              Wallet Address
+                            </span>
+
+                            <p style={{ overflowWrap: "anywhere" }}>
+                              {solanaAccount.address}
+                            </p>
+
+                            <div className="asset-row">
+                              <span>SOL Balance</span>
+
+                              <strong>
+                                {solanaBalance === null
+                                  ? "Loading..."
+                                  : `${Number(solanaBalance).toFixed(6)} SOL`}
+                              </strong>
+                            </div>
+                          </div>
+
+                          <button
+                            className="account-action"
+                            disabled={solanaBusy}
+                            onClick={refreshSolana}
+                          >
+                            Refresh Balance
+                          </button>
+{/* 
+                          <button
+                            className="account-action"
+                            disabled={solanaBusy}
+                            onClick={() => connectSolana(
+                              solanaAccount.walletName === "Phantom"
+                                ? "MetaMask"
+                                : "Phantom"
+                            )}
+                          >
+                            Switch to {
+                              solanaAccount.walletName === "Phantom"
+                                ? "MetaMask Solana"
+                                : "Phantom"
+                            }
+                          </button> */}
+
+
+                          <button
+                            className="disconnect-option"
+                            disabled={solanaBusy}
+                            onClick={async () => {
+                              await disconnectSolana();
+                              setWalletMenuOpen(false);
+                            }}
+                          >
+                            Disconnect from MinSwap
+                          </button>
+
+                        </>
+                      )}
+
+                      {solanaError && (
+                        <div className="error" role="alert">
+                          {solanaError}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {chainView !== "solana" && account && (
+                    <>
+                      {/* <span className="dropdown-heading">
+                        Connected accounts ({accounts.length})
+                      </span> */}
+                      <span className="dropdown-heading">Connected accounts ({accounts.length})</span>
+
+                      <div className="wallet-identity-row">
+                        <WalletLogo icon={walletIcon} name={account.walletName} size={32} />
+                        <div>
+                          <strong>{account.walletName}</strong>
+                          <small>{network.name}</small>
+                        </div>
+                      </div>
+
+                      <div className="acct-list">
+                        {accounts.map((addr, i) => (
+                          <div key={addr} className={`acct-row ${i === 0 ? "active" : ""}`}>
+                            <span className="identicon">◈</span>
+                            <div className="acct-main">
+                              <strong>{getLabel(addr, i)} {i === 0 && <span className="acct-badge">ACTIVE</span>}</strong>
+                              <span title={addr}>{addr}</span>
+                              <em>{Number(balances[addr] ?? 0).toFixed(5)} {network.currency}</em>
+                            </div>
+                            <button className="mini-btn" onClick={() => copyAddress(addr)}>Copy</button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button className="account-action" onClick={manageAccounts}>
+                        Add / switch accounts in wallet
+                      </button>
+
+                      {/* RENAME ACTIVE ACCOUNT */}
+                      <div className="account-label-row">
+                        {editingLabel ? (
+                          <input
+                            className="account-label-input" value={draftLabel} maxLength={26} placeholder="Account name"
+                            onChange={(e) => setDraftLabel(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") saveAccountLabel(); if (e.key === "Escape") setEditingLabel(false); }}
+                          />
+                        ) : (<strong>{accountLabel}</strong>)}
+                        <button onClick={() => { if (editingLabel) saveAccountLabel(); else { setDraftLabel(accountLabel); setEditingLabel(true); } }}>
+                          {editingLabel ? "Save" : "Rename active"}
+                        </button>
+                      </div>
+
+                      {/* ASSETS OF ACTIVE ACCOUNT */}
+                      <div className="account-address-box">
+                        <span className="address-caption">Assets on {network.name}</span>
+                        <div className="asset-row">
+                          <span>{network.currency || "Native"}</span>
+                          <span>{Number(account.balance || 0).toFixed(5)}</span>
+                        </div>
+                        {network.btc ? (
+                          <div className="asset-row">
+                            <span>{network.btc.symbol} (Bitcoin)</span>
+                            <span>{Number(btc || 0).toFixed(6)}</span>
+                          </div>
+                        ) : (
+                          <small>No wrapped BTC is tracked on this network.</small>
+                        )}
+                      </div>
+
+                      {copyMessage && <small>{copyMessage}</small>}
+                      <small className="account-help">Account names are saved locally in this browser. Balances refresh automatically.</small>
+
+                      <button className="disconnect-option" onClick={handleDisconnect}>Disconnect from MinSwap</button>  </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* ================= WALLET MODAL ================= */}
+      {walletModal && (
+        <div className="wallet-overlay" onClick={() => { if (!connecting) setWalletModal(false); }}>
+          <div className="wallet-dialog" role="dialog" aria-modal="true" aria-label="Select wallet" onClick={(e) => e.stopPropagation()}>
+            <div className="wallet-dialog-header">
+              <h2>Connect a wallet</h2>
+              <button aria-label="Close" disabled={connecting} onClick={() => setWalletModal(false)}>✕</button>
+            </div>
+            <p>Select the wallet extension you want to connect.</p>
+            {walletOptions.map((wallet) => (
+              <button key={wallet.id} className="wallet-option" disabled={connecting} onClick={() => handleSelectWallet(wallet)}>
+                <WalletLogo icon={wallet.icon} name={wallet.name} size={32} />
+                <span>{wallet.name}</span>
+                <span>→</span>
+              </button>
+            ))}
+            {!walletOptions.length && <p>No compatible browser wallets detected.</p>}
+            {error && <div className="error" role="alert">{error}</div>}
+          </div>
+        </div>
+      )}
+
+
+
+      {/* ================= SWAP PAGE ================= */}
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          gap: 12,
+          padding: "20px 16px 0",
+        }}
+      >
+      </div>
+
+      {/* {chainView === "solana" && <SolanaPanel connection={solanaAccount}
+        balance={solanaBalance}
+        busy={solanaBusy}
+        error={solanaError}
+        onConnect={connectSolana}
+        onRefresh={refreshSolana}
+        onDisconnect={disconnectSolana}
+        onShowAccount={() => {
+          setNetworkOpen(false);
+          setWalletMenuOpen(true);
+        }} />} */}
+
+      {chainView === "crosschain" && (
+        <SwapCard
+          evmAccount={account}
+          solanaAccount={solanaAccount}
+          onConnectEvm={handleConnect}
+          onConnectSolana={connectSolana}
+          solanaBusy={solanaBusy}
+        />
+      )}
+
+      {/* {chainView === "evm" && ( */}
+      {(chainView === "evm" || chainView === "solana") && (
+
+        <main className="main">
+          <div className="page-tabs">
+            <button className="active">Swap</button>
+            <button>Limit</button>
+          </div>
+
+          <section className="swap-card">
+            <div className="card-top">
+              <div>
+                <h1>Swap</h1>
+                <p>Trade tokens instantly with our decentralized exchange.</p>
+              </div>
+              <button className="gear">⚙</button>
+            </div>
+
+            <div className="field">
+              <div className="field-label">
+                <span>You pay</span>
+                <span>
+  Balance: {chainView === "solana"
+    ? solanaBalanceFor(from)
+    : account
+      ? String(tokenBalances[from] ?? "—")
+      : "—"}
+</span>
+              </div>
+              <div className="amount-row">
+                <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.0" inputMode="decimal" />
+                <TokenSelect value={from} onChange={setFrom} exclude={to} />
+              </div>
+            </div>
+
+            <button className="switch" onClick={swapTokens}>↕</button>
+
+            <div className="field">
+              <div className="field-label"><span>You receive</span><span>Balance: —</span></div>
+              <div className="amount-row">
+                <input readOnly placeholder="0.0" value={amount && Number.isFinite(Number(amount)) ? (Number(amount) * 1.98).toFixed(4) : ""} />
+                <TokenSelect value={to} onChange={setTo} exclude={from} />
+              </div>
+            </div>
+
+            <div className="details">
+              <div><span>Rate (demo only)</span><span>1 {from} ≈ 1.98 {to}</span></div>
+              <div><span>Minimum received</span><span>—</span></div>
+              <div><span>Price impact</span><span>—</span></div>
+              <div>
+                <span>Slippage tolerance</span>
+                <select value={slippage} onChange={(e) => setSlippage(e.target.value)}>
+                  <option value="0.1">0.1%</option>
+                  <option value="0.5">0.5%</option>
+                  <option value="1.0">1.0%</option>
+                </select>
+              </div>
+            </div>
+
+            {error && <div className="error" role="alert">{error}</div>}
+
+            <button className="swap-button" disabled={connecting} onClick={handleSwap}>
+              {connecting ? "Processing..." : account ? "Swap" : "Connect Wallet"}
+            </button>
+
+            <div className="network">
+              <span className="dot" />
+              {account ? `${network.name} • ${shortAddress(account.address)}` : "Connect wallet to select a network"}
+            </div>
+          </section>
+
+          <p className="notice">Demo quote only. Swaps require verified token contracts and supported liquidity.</p>
+        </main>
+      )}
+
+      <footer>
+        <span>MinSwap Web3</span>
+        <span>Multi-wallet • EIP-6963 • ethers.js</span>
+      </footer>
+    </div>
+  );
+  useEffect(() => {
+  let cancelled = false;
+
+  if (!solanaAccount?.address || chainView !== "solana") {
+    setSolanaTokenBalances([]);
+    return;
+  }
+
+  async function refreshTokens() {
+    try {
+      const balances = await getSolanaTokenBalances(
+        solanaAccount.address
+      );
+
+      if (!cancelled) {
+        setSolanaTokenBalances(balances);
+      }
+    } catch (err) {
+      console.error("Solana token balance error:", err);
+    }
+  }
+
+  refreshTokens();
+
+  const timer = setInterval(refreshTokens, 12000);
+
+  return () => {
+    cancelled = true;
+    clearInterval(timer);
+  };
+}, [solanaAccount?.address, chainView]);
+
+
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\src\btc\wallet.js ==========
+
+// Bitcoin testnet wallet access. Currently supports the Unisat browser extension (window.unisat).
+// Add other wallets by adding an entry to BTC_WALLETS with the same four functions.
+import { BTC_NETWORK } from "./config";
+
+async function unisatEnsureTestnet(w) {
+  try {
+    if (w.switchChain) { await w.switchChain(BTC_NETWORK.unisatChain); return; }
+  } catch { /* fall through to legacy API */ }
+  if (w.switchNetwork) await w.switchNetwork(BTC_NETWORK.unisatNetwork);
+}
+
+const unisat = {
+  id: "unisat",
+  name: "Unisat",
+  installed: () => typeof window !== "undefined" && !!window.unisat,
+  async connect() {
+    const w = window.unisat;
+    if (!w) throw new Error("Unisat wallet not found. Install the Unisat extension and unlock it.");
+    const accounts = await w.requestAccounts();
+    await unisatEnsureTestnet(w);
+    const address = (await w.getAccounts())[0] || accounts[0];
+    if (!address) throw new Error("Unisat returned no address.");
+    return { walletId: "unisat", walletName: "Unisat", address };
+  },
+  async getBalanceSats() {
+    const b = await window.unisat.getBalance();
+    return Number(b?.total ?? b?.confirmed ?? 0);
+  },
+  async send(toAddress, sats) {
+    return window.unisat.sendBitcoin(toAddress, Number(sats));
+  },
+};
+
+export const BTC_WALLETS = [unisat];
+
+export function getBtcWallet(id) {
+  const w = BTC_WALLETS.find((x) => x.id === id);
+  if (!w) throw new Error("Unsupported Bitcoin wallet.");
+  return w;
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\src\crosschain\anchorWallet.js ==========
+
+// Adapts a Wallet Standard Solana account (Phantom / MetaMask Solana, as connected in src/solana/wallet.js)
+// into the AnchorProvider that the Garden SDK expects for Solana swaps.
+import { Transaction, VersionedTransaction } from "@solana/web3.js";
+
+export async function makeAnchorProvider(connection, rpcConnection) {
+  const { AnchorProvider } = await import("@coral-xyz/anchor");
+  const sign = connection?.wallet?.features?.["solana:signTransaction"];
+  if (!sign) throw new Error(`${connection?.walletName || "This wallet"} does not support signing Solana transactions.`);
+
+  const signOne = async (tx) => {
+    const versioned = "version" in tx;
+    const bytes = versioned ? tx.serialize() : tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+    const [{ signedTransaction }] = await sign.signTransaction({
+      account: connection.account,
+      transaction: bytes,
+      chain: "solana:devnet",
+    });
+    return versioned ? VersionedTransaction.deserialize(signedTransaction) : Transaction.from(signedTransaction);
+  };
+
+  const wallet = {
+    publicKey: connection.publicKey,
+    signTransaction: signOne,
+    signAllTransactions: async (txs) => Promise.all(txs.map(signOne)),
+  };
+  return new AnchorProvider(rpcConnection, wallet, { commitment: "confirmed" });
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\src\solana\SolanaPanel.jsx ==========
+
+
+import { useEffect, useState } from "react";
+import {
+  getSolanaTokenBalances,
+  SOLANA_TOKENS,
+} from "./token";
+
+export default function SolanaPanel({
+  connection,
+  balance,
+  busy,
+  error,
+  onConnect,
+  onRefresh,
+  onDisconnect,
+  onShowAccount,
+}) {
+  const connected = Boolean(connection);
+
+  const [tokenBalances, setTokenBalances] = useState([]);
+  const [tokensLoading, setTokensLoading] = useState(false);
+  const [tokenError, setTokenError] = useState("");
+  const [refreshCount, setRefreshCount] = useState(0);
+
+  const walletAddress = connection?.address;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!walletAddress) {
+      setTokenBalances([]);
+      setTokenError("");
+      setTokensLoading(false);
+      return;
+    }
+
+    async function loadTokens() {
+      setTokensLoading(true);
+      setTokenError("");
+
+      try {
+        const result = await getSolanaTokenBalances(
+          walletAddress
+        );
+
+        if (!cancelled) {
+          setTokenBalances(result);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setTokenError(
+            err?.message || "Unable to load SPL token balances."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setTokensLoading(false);
+        }
+      }
+    }
+
+    loadTokens();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [walletAddress, refreshCount]);
+
+  async function handleRefresh() {
+    setRefreshCount((count) => count + 1);
+    await onRefresh?.();
+  }
+
+  function formatTokenBalance(value) {
+    return Number(value).toLocaleString("en-US", {
+      maximumFractionDigits: 6,
+    });
+  }
+
+  return (
+    <section
+      className="swap-card"
+      style={{
+        width: "100%",
+        maxWidth: 520,
+        margin: "28px auto",
+        padding: 24,
+      }}
+    >
+      <div className="card-top">
+        <div>
+          <h1>Swap</h1>
+          <p>
+            {connected
+              ? "Connected Solana wallet and token balances."
+              : "Connect a Solana wallet to continue."}
+          </p>
+        </div>
+      </div>
+
+      {!connected ? (
+        <div
+          style={{
+            display: "grid",
+            gap: 14,
+            marginTop: 24,
+          }}
+        >
+          <button
+            className="swap-button"
+            disabled={busy}
+            onClick={() => onConnect("Phantom")}
+          >
+            Connect Phantom
+          </button>
+
+          
+        </div>
+      ) : (
+        <>
+          {/* Wallet information */}
+          <div className="field">
+            <div className="field-label">
+              <span>Network</span>
+              <span>Solana Devnet</span>
+            </div>
+
+            <h2 style={{ marginTop: 12 }}>
+              {connection.walletName}
+            </h2>
+
+            <p style={{ overflowWrap: "anywhere" }}>
+              {connection.address}
+            </p>
+          </div>
+
+          {/* SOL balance */}
+          <div className="field">
+            <div className="field-label">
+              <span>Available balance</span>
+              <span>Devnet</span>
+            </div>
+
+            <div className="amount-row">
+              <strong style={{ fontSize: 28 }}>
+                {balance === null
+                  ? "—"
+                  : Number(balance).toFixed(6)}
+              </strong>
+
+              <strong>SOL</strong>
+            </div>
+          </div>
+
+          {/* SPL token balances */}
+          <div className="field">
+            <div className="field-label">
+              <span>SPL Token Balances</span>
+              <span>Solana Devnet</span>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gap: 12,
+                marginTop: 14,
+              }}
+            >
+              {SOLANA_TOKENS.map((token) => {
+                const tokenData = tokenBalances.find(
+                  (item) => item.mint === token.mint
+                );
+
+                return (
+                  <div
+                    key={token.mint}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      padding: "14px",
+                      border: "1px solid #293047",
+                      borderRadius: 12,
+                      background: "#151a2b",
+                    }}
+                  >
+                    <div>
+                      <strong>{token.symbol}</strong>
+                      <p
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.7,
+                          marginTop: 4,
+                        }}
+                      >
+                        {token.name}
+                      </p>
+                    </div>
+
+                    <strong>
+                      {tokensLoading
+                        ? "Loading..."
+                        : tokenData
+                          ? formatTokenBalance(
+                              tokenData.balance
+                            )
+                          : "—"}
+                    </strong>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {tokenError && (
+            <div className="error" role="alert">
+              {tokenError}
+            </div>
+          )}
+
+          {/* Existing actions */}
+          <button
+            className="swap-button"
+            disabled={busy}
+            onClick={onShowAccount}
+          >
+            View Account Details
+          </button>
+
+          <button
+            className="account-action"
+            disabled={busy || tokensLoading}
+            onClick={handleRefresh}
+            style={{ marginTop: 12 }}
+          >
+            {tokensLoading
+              ? "Refreshing..."
+              : "Refresh Balance"}
+          </button>
+
+          <button
+            className="account-action"
+            disabled={busy}
+            onClick={onDisconnect}
+            style={{ marginTop: 12 }}
+          >
+            Disconnect Wallet
+          </button>
+        </>
+      )}
+
+      {error && (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      )}
+
+      <p className="notice">
+        Solana Devnet wallet testing. SPL token balances
+        are live; swaps are not enabled yet.
+      </p>
+    </section>
+  );
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\src\solana\token.js ==========
+
+
+import { PublicKey } from "@solana/web3.js";
+import {
+  getAssociatedTokenAddress,
+  getAccount,
+} from "@solana/spl-token";
+
+import { solanaConnection } from "./config";
+
+export const SOLANA_TOKENS = [
+  {
+    symbol: "MSTA",
+    name: "MinSwap Token A",
+    mint: "6yo8bHAeuFSj12kmxFhZSdmj5RjBRk5iqaBQr5XcWDXm",
+    decimals: 6,
+  },
+  {
+    symbol: "MSTB",
+    name: "MinSwap Token B",
+    mint: "EQ5zHatuNJU8oRmU3KQHZSLKQ3wyJpHRFentnW9ktiQR",
+    decimals: 6,
+  },
+];
+
+export async function getSolanaTokenBalances(
+  walletAddress
+) {
+  const owner = new PublicKey(walletAddress);
+
+  return Promise.all(
+    SOLANA_TOKENS.map(async (token) => {
+      try {
+        const mint = new PublicKey(token.mint);
+
+        const tokenAccount =
+          await getAssociatedTokenAddress(
+            mint,
+            owner
+          );
+
+        const account = await getAccount(
+          solanaConnection,
+          tokenAccount
+        );
+
+        const balance =
+          Number(account.amount) /
+          10 ** token.decimals;
+
+        return {
+          ...token,
+          balance,
+        };
+      } catch (error) {
+        if (
+          error.name === "TokenAccountNotFoundError"
+        ) {
+          return {
+            ...token,
+            balance: 0,
+          };
+        }
+
+        throw error;
+      }
+    })
+  );
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\src\solana\wallet.js ==========
+
+
+import { getWallets } from "@wallet-standard/app";
+
+import {
+  createSolanaClient,
+} from "@metamask/connect-solana";
+
+import {
+  LAMPORTS_PER_SOL,
+  PublicKey,
+} from "@solana/web3.js";
+
+import {
+  solanaConnection,
+  SOLANA_NETWORK,
+} from "./config";
+
+let metamaskClient = null;
+
+// Register MetaMask as a Solana wallet.
+async function initializeMetaMask() {
+  if (metamaskClient) return metamaskClient;
+
+  metamaskClient = await createSolanaClient({
+    dapp: {
+      name: "MinSwap Web3",
+      url: window.location.origin,
+    },
+    api: {
+      supportedNetworks: {
+        devnet: SOLANA_NETWORK.rpcUrl,
+      },
+    },
+  });
+
+  return metamaskClient;
+}
+
+export async function initializeSolanaWallets() {
+  // Enables MetaMask Solana Wallet Standard.
+  await initializeMetaMask();
+
+  // Triggers discovery of browser wallets,
+  // including Phantom when installed.
+  return getWallets().get();
+}
+
+function getSelectedWallet(walletName) {
+  if (walletName === "MetaMask") {
+    const wallet = metamaskClient?.getWallet();
+
+    if (!wallet) {
+      throw new Error("MetaMask Solana is not initialized.");
+    }
+
+    return wallet;
+  }
+
+  if (walletName === "Phantom") {
+    const registered = getWallets().get();
+
+    const phantom = registered.find(
+      (wallet) =>
+        wallet.name.toLowerCase().includes("phantom") &&
+        wallet.chains.some((chain) =>
+          chain.startsWith("solana:")
+        )
+    );
+
+    if (!phantom) {
+      throw new Error(
+        "Phantom Solana wallet not found. Install and unlock Phantom."
+      );
+    }
+
+    return phantom;
+  }
+
+  throw new Error("Unsupported Solana wallet.");
+}
+
+export async function connectSolanaWallet(walletName) {
+  await initializeSolanaWallets();
+
+  const wallet = getSelectedWallet(walletName);
+
+  const connectFeature =
+    wallet.features["standard:connect"];
+
+  if (!connectFeature) {
+    throw new Error(
+      `${walletName} does not support wallet connection.`
+    );
+  }
+
+  const result = await connectFeature.connect();
+
+  const account = result.accounts?.find(
+    (item) =>
+      item.chains?.some((chain) =>
+        chain.startsWith("solana:")
+      )
+  );
+
+  if (!account) {
+    throw new Error("No Solana account was returned.");
+  }
+
+  const publicKey = new PublicKey(account.address);
+
+  return {
+    wallet,
+    account,
+    walletName,
+    address: publicKey.toBase58(),
+    publicKey,
+  };
+}
+
+export async function getSolanaBalance(address) {
+  const publicKey = new PublicKey(address);
+
+  const lamports =
+    await solanaConnection.getBalance(publicKey);
+
+  return lamports / LAMPORTS_PER_SOL;
+}
+
+
+export async function disconnectSolanaWallet(connection) {
+  if (!connection) return;
+
+  try {
+    if (connection.walletName === "MetaMask") {
+      const client = await initializeMetaMask();   // was getMetaClient()
+      await client.disconnect();
+      return;
+    }
+
+    // Phantom (Wallet Standard)
+    const feature = connection.wallet?.features?.["standard:disconnect"];
+    if (feature) await feature.disconnect();
+
+    // Fallback: Phantom's own provider, in case the standard feature didn't revoke the session
+    await window.phantom?.solana?.disconnect?.();
+  } catch (err) {
+    console.warn("Wallet disconnect failed:", err);
+  }
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\src\swap\SwapCard.jsx ==========
+
+import { useEffect, useMemo, useState } from "react";
+import { PublicKey } from "@solana/web3.js";
+import { CHAINS, TOKENS, getToken, tokensOn } from "./tokens";
+import { ROUTE, getRoute } from "./router";
+import { getSwapQuote, executeSwap } from "../web3/swap";
+import { SEPOLIA_CHAIN_ID } from "../web3/config";
+import { BTC_WALLETS, getBtcWallet } from "../btc/wallet";
+import { btcExplorerTx } from "../btc/config";
+import { executeGardenSwap, getGardenQuote, isGardenConfigured } from "../crosschain/garden";
+import OrderStatus, { loadOrders, rememberOrder } from "../crosschain/OrderStatus";
+
+function validAddress(chain, addr) {
+  const a = (addr || "").trim();
+  if (!a) return false;
+  if (chain === "sepolia") return /^0x[0-9a-fA-F]{40}$/.test(a);
+  if (chain === "bitcoin") return /^(tb1|[mn2])[a-zA-Z0-9]{25,62}$/.test(a);
+  if (chain === "solana") { try { new PublicKey(a); return true; } catch { return false; } }
+  return false;
+}
+
+function TokenButton({ token, onClick }) {
+  const chain = CHAINS[token.chain];
+  return (
+    <button className="token-btn" onClick={onClick} type="button">
+      <span className="token-dot" style={{ background: chain.color }}>{chain.glyph}</span>
+      <span className="token-text"><strong>{token.symbol}</strong><small>{chain.name}</small></span>
+      <span aria-hidden>▾</span>
+    </button>
+  );
+}
+
+function TokenPicker({ onPick, onClose }) {
+  const [chainKey, setChainKey] = useState("bitcoin");
+  return (
+    <div className="wallet-overlay" onClick={onClose}>
+      <div className="wallet-dialog" role="dialog" aria-modal="true" aria-label="Select token" onClick={(e) => e.stopPropagation()}>
+        <div className="wallet-dialog-header"><h2>Select a token</h2><button aria-label="Close" onClick={onClose}>✕</button></div>
+        <div className="chain-tabs">
+          {Object.values(CHAINS).map((c) => (
+            <button key={c.key} className={c.key === chainKey ? "active" : ""} onClick={() => setChainKey(c.key)}>{c.name}</button>
+          ))}
+        </div>
+        {tokensOn(chainKey).map((t) => (
+          <button key={t.id} className="wallet-option" onClick={() => onPick(t.id)}>
+            <span className="token-dot" style={{ background: CHAINS[t.chain].color }}>{CHAINS[t.chain].glyph}</span>
+            <span><strong>{t.symbol}</strong> <small>{t.name}</small></span>
+            <span>→</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function SwapCard({ evmAccount, solanaAccount, onConnectEvm, onConnectSolana, solanaBusy }) {
+  const [fromId, setFromId] = useState("bitcoin:BTC");
+  const [toId, setToId] = useState("sepolia:WBTC");
+  const [amount, setAmount] = useState("");
+  const [picker, setPicker] = useState(null); // "from" | "to" | null
+  const [quote, setQuote] = useState(null);
+  const [quoting, setQuoting] = useState(false);
+  const [quoteError, setQuoteError] = useState("");
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [btcAccount, setBtcAccount] = useState(null);
+  const [btcBalance, setBtcBalance] = useState(null);
+  const [recipient, setRecipient] = useState("");
+  const [solChoice, setSolChoice] = useState(false);
+  const [orders, setOrders] = useState(loadOrders);
+  const [lastBtcTx, setLastBtcTx] = useState("");
+
+  const route = useMemo(() => getRoute(fromId, toId), [fromId, toId]);
+  const from = getToken(fromId);
+  const to = getToken(toId);
+
+  const sourceConnected =
+    from.chain === "sepolia" ? !!evmAccount : from.chain === "solana" ? !!solanaAccount : !!btcAccount;
+  const connectedDest =
+    to.chain === "sepolia" ? evmAccount?.address : to.chain === "solana" ? solanaAccount?.address : btcAccount?.address;
+  const sourceAddress =
+    from.chain === "sepolia" ? evmAccount?.address : from.chain === "solana" ? solanaAccount?.address : btcAccount?.address;
+  const destAddress = (recipient.trim() || connectedDest || "").trim();
+  const wrongEvmNetwork = from.chain === "sepolia" && evmAccount && Number(evmAccount.chainId) !== SEPOLIA_CHAIN_ID;
+
+  // Reset the manual recipient and quote when the pair changes.
+  useEffect(() => { setRecipient(""); setQuote(null); setQuoteError(""); setError(""); }, [fromId, toId]);
+
+  // Debounced real quote.
+  useEffect(() => {
+    setQuote(null); setQuoteError("");
+    if (route.kind === ROUTE.NONE || !amount || Number(amount) <= 0) return;
+    if (route.kind === ROUTE.LOCAL && (!evmAccount || wrongEvmNetwork)) return;
+    let stale = false;
+    setQuoting(true);
+    const t = setTimeout(async () => {
+      try {
+        if (route.kind === ROUTE.LOCAL) {
+          const q = await getSwapQuote(evmAccount, amount, fromId === "sepolia:MSTA");
+          if (!stale) setQuote({ receiveDisplay: q.formattedOut, minDisplay: q.formattedMin });
+        } else {
+          const q = await getGardenQuote(from, to, amount);
+          if (!stale) setQuote(q);
+        }
+      } catch (e) {
+        if (!stale) setQuoteError(e?.shortMessage || e?.message || "Could not get a quote.");
+      } finally {
+        if (!stale) setQuoting(false);
+      }
+    }, 600);
+    return () => { stale = true; clearTimeout(t); setQuoting(false); };
+  }, [route.kind, fromId, toId, amount, evmAccount?.address, evmAccount?.chainId]);
+
+  // BTC balance.
+  useEffect(() => {
+    if (!btcAccount) { setBtcBalance(null); return; }
+    let stale = false;
+    getBtcWallet(btcAccount.walletId).getBalanceSats()
+      .then((s) => { if (!stale) setBtcBalance(s / 1e8); })
+      .catch(() => { if (!stale) setBtcBalance(null); });
+    return () => { stale = true; };
+  }, [btcAccount, lastBtcTx]);
+
+  function flip() { setFromId(toId); setToId(fromId); setAmount(""); }
+  function pick(side, id) {
+    setPicker(null);
+    if (side === "from") { if (id === toId) setToId(fromId); setFromId(id); }
+    else { if (id === fromId) setFromId(toId); setToId(id); }
+  }
+
+  async function connectBtc() {
+    setError("");
+    try {
+      const w = BTC_WALLETS[0];
+      if (!w.installed()) throw new Error("Unisat wallet not found. Install the Unisat browser extension, switch it to Testnet, and reload.");
+      setBtcAccount(await w.connect());
+    } catch (e) { setError(e?.message || "Bitcoin wallet connection failed."); }
+  }
+
+  const needsKey = route.kind === ROUTE.GARDEN && !isGardenConfigured();
+
+  let action = { label: "Swap", disabled: false, run: handleSwap };
+  if (route.kind === ROUTE.NONE) action = { label: "Route unavailable", disabled: true };
+  else if (needsKey) action = { label: "Garden API key required", disabled: true };
+  else if (!amount || Number(amount) <= 0) action = { label: "Enter an amount", disabled: true };
+  else if (!sourceConnected) {
+    action = from.chain === "sepolia" ? { label: "Connect Ethereum wallet", run: onConnectEvm }
+      : from.chain === "solana" ? { label: "Connect Solana wallet", run: () => setSolChoice(true) }
+      : { label: "Connect Bitcoin wallet (Unisat)", run: connectBtc };
+  } else if (wrongEvmNetwork) action = { label: "Switch wallet to Sepolia", disabled: true };
+  else if (quoting || (!quote && !quoteError)) action = { label: "Getting quote...", disabled: true };
+  else if (quoteError) action = { label: "No quote available", disabled: true };
+  else if (route.kind === ROUTE.GARDEN && !validAddress(to.chain, destAddress)) action = { label: "Enter a valid recipient address", disabled: true };
+
+  async function handleSwap() {
+    setError(""); setBusy(true); setStatus("");
+    try {
+      if (route.kind === ROUTE.LOCAL) {
+        await executeSwap(evmAccount, amount, fromId === "sepolia:MSTA", "0.5", setStatus);
+      } else {
+        const btcWallet = btcAccount ? { address: btcAccount.address, send: (a, s) => getBtcWallet(btcAccount.walletId).send(a, s) } : null;
+        const res = await executeGardenSwap({
+          fromToken: from, toToken: to, quote,
+          sourceAddress, destinationAddress: destAddress,
+          ctx: { evmAccount, solanaAccount, btcWallet },
+          onStatus: setStatus,
+        });
+        rememberOrder({ orderId: res.orderId, txid: res.txid, label: `${amount} ${from.symbol} → ${to.symbol}` });
+        setOrders(loadOrders());
+        if (res.txid) setLastBtcTx(res.txid);
+        setStatus("Order created. Track it below.");
+      }
+      setAmount("");
+    } catch (e) {
+      setError(e?.shortMessage || e?.message || "Swap failed.");
+      setStatus("");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <section className="swap-card" style={{ width: "100%", maxWidth: 480, margin: "28px auto" }}>
+      <div className="card-top"><div><h1>Swap</h1><p>Swap across Sepolia, Solana Devnet and Bitcoin testnet.</p></div></div>
+
+      <div className="field">
+        <div className="field-label"><span>You pay</span>
+          {from.chain === "bitcoin" && btcBalance !== null && <span>Balance: {btcBalance} BTC</span>}</div>
+        <div className="amount-row">
+          <input inputMode="decimal" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Amount to pay" />
+          <TokenButton token={from} onClick={() => setPicker("from")} />
+        </div>
+      </div>
+
+      <div className="flip-wrap"><button className="flip" onClick={flip} aria-label="Flip tokens" type="button">↓↑</button></div>
+
+      <div className="field">
+        <div className="field-label"><span>You receive</span>
+          {quote?.etaSeconds ? <span>~{Math.max(1, Math.round(quote.etaSeconds / 60))} min</span> : null}</div>
+        <div className="amount-row">
+          <input readOnly placeholder="0" value={quote?.receiveDisplay || ""} aria-label="Amount to receive" />
+          <TokenButton token={to} onClick={() => setPicker("to")} />
+        </div>
+      </div>
+
+      {route.kind === ROUTE.GARDEN && (
+        <div className="field">
+          <div className="field-label"><span>Recipient ({CHAINS[to.chain].name})</span></div>
+          <input className="recipient" placeholder={connectedDest || "Paste destination address"} value={recipient} onChange={(e) => setRecipient(e.target.value)} aria-label="Recipient address" />
+        </div>
+      )}
+
+      {quote && route.kind === ROUTE.GARDEN && <p className="notice">Fee: {(quote.feeBps / 100).toFixed(2)}% · Route: Garden (native Bitcoin, non-custodial HTLC)</p>}
+      {quote && route.kind === ROUTE.LOCAL && <p className="notice">Minimum received (0.5% slippage): {quote.minDisplay} {to.symbol}</p>}
+      {route.kind === ROUTE.NONE && <div className="error" role="alert">{route.reason}</div>}
+      {needsKey && <div className="error" role="alert">Cross-chain swaps need a Garden API key. Copy .env.example to .env, set VITE_GARDEN_API_KEY, and restart the dev server.</div>}
+      {quoteError && <div className="error" role="alert">{quoteError}</div>}
+
+     {solChoice && !solanaAccount && (
+  <div className="sol-choice">
+    <button
+      className="swap-button"
+      disabled={solanaBusy}
+      onClick={() => {
+        setSolChoice(false);
+        onConnectSolana("Phantom");
+      }}
+    >
+      Connect Phantom
+    </button>
+  </div>
+)}
+
+      <button className="swap-button" disabled={action.disabled || busy} onClick={action.run}>{busy ? "Working..." : action.label}</button>
+      {status && <p className="notice" role="status">{status}</p>}
+      {error && <div className="error" role="alert">{error}</div>}
+      {lastBtcTx && <p className="notice">BTC transfer sent: <a href={btcExplorerTx(lastBtcTx)} target="_blank" rel="noreferrer">view on mempool.space</a></p>}
+
+      {picker && <TokenPicker onPick={(id) => pick(picker, id)} onClose={() => setPicker(null)} />}
+      <OrderStatus orders={orders} />
+    </section>
+  );
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\src\swap\tokens.js ==========
+
+
+import { CONTRACTS } from "../web3/config";
+
+// ========================================
+// SUPPORTED BLOCKCHAINS
+// ========================================
+
+export const CHAINS = {
+  sepolia: {
+    key: "sepolia",
+    name: "Ethereum Sepolia",
+    type: "evm",
+    chainId: 11155111,
+    color: "#546cff",
+    glyph: "◆",
+  },
+
+  solana: {
+    key: "solana",
+    name: "Solana Devnet",
+    type: "solana",
+    color: "#7752c7",
+    glyph: "◎",
+  },
+
+  bitcoin: {
+    key: "bitcoin",
+    name: "Bitcoin Testnet",
+    type: "bitcoin",
+    color: "#f7931a",
+    glyph: "₿",
+  },
+};
+
+// ========================================
+// SUPPORTED TOKENS
+// ========================================
+
+export const TOKENS = [
+  // ----------------------------------------
+  // ETHEREUM SEPOLIA
+  // ----------------------------------------
+
+  {
+    id: "sepolia:WBTC",
+    chain: "sepolia",
+    symbol: "WBTC",
+    name: "Wrapped Bitcoin",
+    decimals: 8,
+    garden: ["ethereum_sepolia", "WBTC"],
+  },
+
+  {
+    id: "sepolia:USDC",
+    chain: "sepolia",
+    symbol: "USDC",
+    name: "USD Coin",
+    decimals: 6,
+    garden: ["ethereum_sepolia", "USDC"],
+  },
+
+  {
+    id: "sepolia:MSTA",
+    chain: "sepolia",
+    symbol: "MSTA",
+    name: "MinSwap Token A",
+    decimals: 18,
+    local: true,
+    address: CONTRACTS.tokenA,
+    garden: null,
+  },
+
+  {
+    id: "sepolia:MSTB",
+    chain: "sepolia",
+    symbol: "MSTB",
+    name: "MinSwap Token B",
+    decimals: 18,
+    local: true,
+    address: CONTRACTS.tokenB,
+    garden: null,
+  },
+
+  // ----------------------------------------
+  // SOLANA DEVNET
+  // ----------------------------------------
+
+  {
+    id: "solana:SOL",
+    chain: "solana",
+    symbol: "SOL",
+    name: "Solana",
+    decimals: 9,
+    garden: ["solana_testnet", "SOL"],
+  },
+
+  {
+    id: "solana:USDC",
+    chain: "solana",
+    symbol: "USDC",
+    name: "USD Coin",
+    decimals: 6,
+    garden: ["solana_testnet", "USDC"],
+  },
+
+  {
+    id: "solana:cbBTC",
+    chain: "solana",
+    symbol: "cbBTC",
+    name: "Coinbase Wrapped BTC",
+    decimals: 8,
+    garden: ["solana_testnet", "cbBTC"],
+  },
+
+  // ----------------------------------------
+  // YOUR CREATED SOLANA DEVNET TOKENS
+  // ----------------------------------------
+
+  {
+    id: "solana:MSTA",
+    chain: "solana",
+    symbol: "MSTA",
+    name: "MinSwap Token A",
+    decimals: 6,
+    address:
+      "6yo8bHAeuFSj12kmxFhZSdmj5RjBRk5iqaBQr5XcWDXm",
+    garden: null,
+    solanaPool: true,
+  },
+
+  {
+    id: "solana:MSTB",
+    chain: "solana",
+    symbol: "MSTB",
+    name: "MinSwap Token B",
+    decimals: 6,
+    address:
+      "EQ5zHatuNJU8oRmU3KQHZSLKQ3wyJpHRFentnW9ktiQR",
+    garden: null,
+    solanaPool: true,
+  },
+
+  // ----------------------------------------
+  // BITCOIN TESTNET
+  // ----------------------------------------
+
+  {
+    id: "bitcoin:BTC",
+    chain: "bitcoin",
+    symbol: "BTC",
+    name: "Bitcoin",
+    decimals: 8,
+    garden: ["bitcoin_testnet", "BTC"],
+  },
+];
+
+// ========================================
+// TOKEN HELPERS
+// ========================================
+
+export const getToken = (id) =>
+  TOKENS.find((token) => token.id === id);
+
+export const tokensOn = (chainKey) =>
+  TOKENS.filter((token) => token.chain === chainKey);
+
+========== FILE: C:\pilotcross-main\pilotcross-main\src\web3\wallet.js ==========
+
+
+import { BrowserProvider, formatEther } from "ethers";
+
+// Discover wallets using EIP-6963.
+export async function discoverWallets() {
+  const found = new Map();
+
+  const listener = (event) => {
+    const { info, provider } = event.detail || {};
+
+    if (info?.uuid && provider?.request) {
+      found.set(info.uuid, {
+        id: info.uuid,
+        name: info.name,
+        icon: info.icon,
+        provider,
+      });
+    }
+  };
+
+  window.addEventListener(
+    "eip6963:announceProvider",
+    listener
+  );
+
+  window.dispatchEvent(
+    new Event("eip6963:requestProvider")
+  );
+
+  await new Promise((resolve) =>
+    setTimeout(resolve, 350)
+  );
+
+  window.removeEventListener(
+    "eip6963:announceProvider",
+    listener
+  );
+
+  const wallets = [...found.values()];
+
+  // Support older extensions as a fallback.
+  const injected = window.ethereum;
+
+  const legacy = Array.isArray(injected?.providers)
+    ? injected.providers
+    : injected
+      ? [injected]
+      : [];
+
+  // Only use legacy fallback if EIP-6963 found none.
+  for (const provider of (wallets.length ? [] : legacy)) {
+    if (
+      !provider?.request ||
+      wallets.some(
+        (wallet) => wallet.provider === provider
+      )
+    ) {
+      continue;
+    }
+
+    const name = provider.isTrust
+      ? "Trust Wallet"
+      : provider.isMetaMask && !provider.isTrust
+        ? "MetaMask (legacy)"
+        : "Injected wallet";
+
+    wallets.push({
+      id: `legacy-${wallets.length}`,
+      name,
+      icon: null,
+      provider,
+    });
+  }
+
+  return wallets;
+}
+
+// Connect to the exact wallet selected by the user.
+export async function connectWallet(wallet) {
+  if (!wallet?.provider?.request) {
+    throw new Error("Select an available wallet.");
+  }
+
+  try {
+    const accounts = await wallet.provider.request({
+      method: "eth_requestAccounts",
+    });
+
+    if (!accounts?.[0]) {
+      throw new Error(
+        "No wallet account was selected."
+      );
+    }
+
+    const provider = new BrowserProvider(
+      wallet.provider
+    );
+
+    const network = await provider.getNetwork();
+
+    const balance = await provider.getBalance(
+      accounts[0]
+    );
+
+    return {
+      provider,
+      injectedProvider: wallet.provider,
+      walletName: wallet.name,
+      address: accounts[0],
+      chainId: Number(network.chainId),
+      balance: formatEther(balance),
+    };
+  } catch (error) {
+    if (
+      error?.code === 4001 ||
+      error?.info?.error?.code === 4001
+    ) {
+      throw new Error(
+        "Wallet connection was rejected."
+      );
+    }
+
+    throw new Error(
+      error?.shortMessage ||
+      error?.info?.error?.message ||
+      error?.message ||
+      "Unable to connect wallet. Unlock or restart the wallet extension and try again."
+    );
+  }
+}
+
+// Short display address.
+export function shortAddress(address) {
+  return address
+    ? `${address.slice(0, 6)}...${address.slice(-4)}`
+    : "";
+}
+
+========== FILE: C:\pilotcross-main\pilotcross-main\test\swapcard.test.jsx ==========
+
+// @vitest-environment jsdom
+import { test, expect, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import React from "react";
+import SwapCard from "../src/swap/SwapCard.jsx";
+
+afterEach(cleanup);
+const props = { evmAccount: null, solanaAccount: null, onConnectEvm: () => {}, onConnectSolana: () => {}, solanaBusy: false };
+
+test("default BTC -> WBTC without Garden key shows key notice", () => {
+  render(<SwapCard {...props} />);
+  expect(screen.getAllByText(/Garden API key/i).length).toBeGreaterThan(0);
+  expect(screen.getByLabelText("Amount to pay")).toBeTruthy();
+});
+test("flip swaps the pair", () => {
+  render(<SwapCard {...props} />);
+  expect(screen.getAllByText("BTC").length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByLabelText("Flip tokens"));
+  const btns = document.querySelectorAll(".token-btn strong");
+  expect(btns[0].textContent).toBe("WBTC");
+  expect(btns[1].textContent).toBe("BTC");
+});
+test("token picker lists tokens and selects", () => {
+  render(<SwapCard {...props} />);
+  fireEvent.click(document.querySelectorAll(".token-btn")[1]);
+  fireEvent.click(screen.getByText("Solana Devnet", { selector: ".chain-tabs button" }));
+  fireEvent.click(screen.getByText("cbBTC"));
+  expect(document.querySelectorAll(".token-btn strong")[1].textContent).toBe("cbBTC");
+});
+test("same-chain Solana is reported unsupported, not simulated", () => {
+  render(<SwapCard {...props} />);
+  fireEvent.click(document.querySelectorAll(".token-btn")[0]);
+  fireEvent.click(screen.getByText("Solana Devnet", { selector: ".chain-tabs button" }));
+  fireEvent.click(screen.getByText("SOL"));
+  fireEvent.click(document.querySelectorAll(".token-btn")[1]);
+  fireEvent.click(screen.getByText("Solana Devnet", { selector: ".chain-tabs button" }));
+  fireEvent.click(screen.getByText("USDC"));
+  expect(screen.getByText(/never simulates transactions/i)).toBeTruthy();
+});
+test("local MSTA -> MSTB asks to connect wallet", () => {
+  render(<SwapCard {...props} />);
+  fireEvent.click(document.querySelectorAll(".token-btn")[0]);
+  fireEvent.click(screen.getByText("Ethereum Sepolia", { selector: ".chain-tabs button" }));
+  fireEvent.click(screen.getByText("MSTA"));
+  fireEvent.click(document.querySelectorAll(".token-btn")[1]);
+  fireEvent.click(screen.getByText("Ethereum Sepolia", { selector: ".chain-tabs button" }));
+  fireEvent.click(screen.getByText("MSTB"));
+  fireEvent.change(screen.getByLabelText("Amount to pay"), { target: { value: "1" } });
+  expect(screen.getByText("Connect Ethereum wallet")).toBeTruthy();
+});
