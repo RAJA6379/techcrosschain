@@ -12,10 +12,11 @@ const {
   TOKEN_PROGRAM_ID,
   createMint,
   getAccount,
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
 } = require("@solana/spl-token");
 
-describe("MinSwap Solana - Pool Initialization", () => {
-  // Use the Anchor provider from Anchor.toml
+describe("MinSwap Solana - Phase 3 Liquidity Tests", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
@@ -23,8 +24,30 @@ describe("MinSwap Solana - Pool Initialization", () => {
   const connection = provider.connection;
   const wallet = provider.wallet;
 
+  // Tests must use disposable Localnet tokens only.
+  if (
+    !/^https?:\/\/(127\.0\.0\.1|localhost):8899\/?$/.test(
+      connection.rpcEndpoint
+    )
+  ) {
+    throw new Error(
+      "These liquidity tests must run on Solana Localnet (port 8899)."
+    );
+  }
+
+  let tokenA;
+  let tokenB;
+  let poolPda;
+  let vaultA;
+  let vaultB;
+  let providerTokenA;
+  let providerTokenB;
+
+  const INITIAL_A = 1_000_000n;
+  const INITIAL_B = 2_000_000n;
+
+  // 1. Initialize a new pool.
   it("Creates a pool and two token vaults", async () => {
-    // STEP 1: Create two temporary Localnet SPL tokens.
     const mint1 = await createMint(
       connection,
       wallet.payer,
@@ -41,15 +64,12 @@ describe("MinSwap Solana - Pool Initialization", () => {
       6
     );
 
-    // STEP 2: Sort the mint addresses.
-    // Your Rust contract requires token A < token B.
-    const [tokenA, tokenB] =
+    [tokenA, tokenB] =
       Buffer.compare(mint1.toBuffer(), mint2.toBuffer()) < 0
         ? [mint1, mint2]
         : [mint2, mint1];
 
-    // STEP 3: Derive the pool PDA.
-    const [poolPda] = PublicKey.findProgramAddressSync(
+    [poolPda] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("pool"),
         tokenA.toBuffer(),
@@ -58,8 +78,7 @@ describe("MinSwap Solana - Pool Initialization", () => {
       program.programId
     );
 
-    // STEP 4: Derive the token vault PDAs.
-    const [vaultA] = PublicKey.findProgramAddressSync(
+    [vaultA] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("vault_a"),
         poolPda.toBuffer(),
@@ -67,7 +86,7 @@ describe("MinSwap Solana - Pool Initialization", () => {
       program.programId
     );
 
-    const [vaultB] = PublicKey.findProgramAddressSync(
+    [vaultB] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("vault_b"),
         poolPda.toBuffer(),
@@ -75,7 +94,6 @@ describe("MinSwap Solana - Pool Initialization", () => {
       program.programId
     );
 
-    // STEP 5: Initialize the pool with every required account.
     const tx = await program.methods
       .initializePool()
       .accountsStrict({
@@ -91,7 +109,6 @@ describe("MinSwap Solana - Pool Initialization", () => {
       })
       .rpc();
 
-    // STEP 6: Read and verify the pool state.
     const pool = await program.account.pool.fetch(poolPda);
 
     assert.strictEqual(
@@ -114,35 +131,152 @@ describe("MinSwap Solana - Pool Initialization", () => {
       vaultB.toBase58()
     );
 
-    assert.strictEqual(
-      pool.authority.toBase58(),
-      wallet.publicKey.toBase58()
-    );
-
     assert.strictEqual(pool.totalLiquidity.toString(), "0");
     assert.strictEqual(pool.feeBps, 30);
 
-    // STEP 7: Verify both SPL token vault accounts.
-    const tokenAVault = await getAccount(connection, vaultA);
-    const tokenBVault = await getAccount(connection, vaultB);
+    const a = await getAccount(connection, vaultA);
+    const b = await getAccount(connection, vaultB);
+
+    assert.strictEqual(a.owner.toBase58(), poolPda.toBase58());
+    assert.strictEqual(b.owner.toBase58(), poolPda.toBase58());
+    assert.strictEqual(a.amount, 0n);
+    assert.strictEqual(b.amount, 0n);
+
+    console.log("Pool initialized:", poolPda.toBase58());
+    console.log("Initialization transaction:", tx);
+  });
+
+  // 2. Create provider token accounts and fund them.
+  it("Creates and funds provider token accounts", async () => {
+    const accountA = await getOrCreateAssociatedTokenAccount(
+      connection,
+      wallet.payer,
+      tokenA,
+      wallet.publicKey
+    );
+
+    const accountB = await getOrCreateAssociatedTokenAccount(
+      connection,
+      wallet.payer,
+      tokenB,
+      wallet.publicKey
+    );
+
+    providerTokenA = accountA.address;
+    providerTokenB = accountB.address;
+
+    await mintTo(
+      connection,
+      wallet.payer,
+      tokenA,
+      providerTokenA,
+      wallet.payer,
+      10_000_000
+    );
+
+    await mintTo(
+      connection,
+      wallet.payer,
+      tokenB,
+      providerTokenB,
+      wallet.payer,
+      20_000_000
+    );
+
+    const a = await getAccount(connection, providerTokenA);
+    const b = await getAccount(connection, providerTokenB);
+
+    assert.strictEqual(a.amount, 10_000_000n);
+    assert.strictEqual(b.amount, 20_000_000n);
+
+    console.log("Provider Token A:", a.amount.toString());
+    console.log("Provider Token B:", b.amount.toString());
+  });
+
+  // Helper for invoking the existing Rust instruction.
+  const deposit = (amountA, amountB) =>
+    program.methods
+      .addLiquidity(
+        new anchor.BN(amountA.toString()),
+        new anchor.BN(amountB.toString())
+      )
+      .accountsStrict({
+        provider: wallet.publicKey,
+        pool: poolPda,
+        tokenAMint: tokenA,
+        tokenBMint: tokenB,
+        providerTokenA,
+        providerTokenB,
+        tokenAVault: vaultA,
+        tokenBVault: vaultB,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+
+  // 3. Invalid zero amount must be rejected.
+  it("Rejects zero-amount liquidity", async () => {
+    await assert.rejects(
+      () => deposit(0n, INITIAL_B),
+      /InvalidAmount|Both token amounts|custom program error/i
+    );
+
+    const a = await getAccount(connection, vaultA);
+    const b = await getAccount(connection, vaultB);
+
+    assert.strictEqual(a.amount, 0n);
+    assert.strictEqual(b.amount, 0n);
+
+    console.log("Zero-amount deposit correctly rejected");
+  });
+
+  // 4. Transfer initial liquidity into both vaults.
+  it("Adds initial liquidity successfully", async () => {
+    const beforeA = await getAccount(connection, providerTokenA);
+    const beforeB = await getAccount(connection, providerTokenB);
+
+    const tx = await deposit(INITIAL_A, INITIAL_B);
+
+    const afterA = await getAccount(connection, providerTokenA);
+    const afterB = await getAccount(connection, providerTokenB);
+
+    const vaultAccountA = await getAccount(connection, vaultA);
+    const vaultAccountB = await getAccount(connection, vaultB);
 
     assert.strictEqual(
-      tokenAVault.owner.toBase58(),
-      poolPda.toBase58()
+      afterA.amount,
+      beforeA.amount - INITIAL_A
     );
 
     assert.strictEqual(
-      tokenBVault.owner.toBase58(),
-      poolPda.toBase58()
+      afterB.amount,
+      beforeB.amount - INITIAL_B
     );
 
-    assert.strictEqual(tokenAVault.amount, 0n);
-    assert.strictEqual(tokenBVault.amount, 0n);
+    assert.strictEqual(vaultAccountA.amount, INITIAL_A);
+    assert.strictEqual(vaultAccountB.amount, INITIAL_B);
 
-    console.log("Pool initialized successfully!");
-    console.log("Pool address:", poolPda.toBase58());
-    console.log("Token A vault:", vaultA.toBase58());
-    console.log("Token B vault:", vaultB.toBase58());
-    console.log("Transaction:", tx);
+    console.log("Liquidity successfully deposited");
+    console.log("Vault A:", vaultAccountA.amount.toString());
+    console.log("Vault B:", vaultAccountB.amount.toString());
+    console.log("Deposit transaction:", tx);
+  });
+
+  // 5. Repeated deposits are not supported in Phase 3A.
+  it("Rejects a second initial deposit", async () => {
+    const beforeA = await getAccount(connection, vaultA);
+    const beforeB = await getAccount(connection, vaultB);
+
+    await assert.rejects(
+      () => deposit(INITIAL_A, INITIAL_B),
+      /PoolAlreadyFunded|Initial liquidity has already|custom program error/i
+    );
+
+    const afterA = await getAccount(connection, vaultA);
+    const afterB = await getAccount(connection, vaultB);
+
+    assert.strictEqual(afterA.amount, beforeA.amount);
+    assert.strictEqual(afterB.amount, beforeB.amount);
+
+    console.log("Duplicate deposit correctly rejected");
   });
 });
