@@ -6,7 +6,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-minswap_solana = "GHwq3cme1Kfm8TAgTUatuNW8Aw9Mm5KgsWQW9zP3QagQ"
+minswap_solana = "C16AEqbg9oByBacWyG9uoVDFFSf8q3sY7WvXQscdk3jd"
+
+[programs.devnet]
+minswap_solana = "C16AEqbg9oByBacWyG9uoVDFFSf8q3sY7WvXQscdk3jd"
 
 [registry]
 url = "https://api.apr.dev"
@@ -17,3 +20,8 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run mocha -t 1000000 \"tests/**/*.js\""
+
+[test]
+startup_wait = 60000
+shutdown_wait = 2000
+upgradeable = false
